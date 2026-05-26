@@ -2,12 +2,10 @@ provider "aws" {
   region = "us-east-1"
 }
 
-# 1. Create the S3 Bucket
 resource "aws_s3_bucket" "portfolio_bucket" {
-  bucket = "vaibhav-static-portfolio-1612" # <-- CHANGE THIS to make it globally unique
+  bucket = "vaibhav-static-portfolio-1612" 
 }
 
-# 2. Turn on Static Website Hosting
 resource "aws_s3_bucket_website_configuration" "portfolio_website" {
   bucket = aws_s3_bucket.portfolio_bucket.id
 
@@ -16,7 +14,6 @@ resource "aws_s3_bucket_website_configuration" "portfolio_website" {
   }
 }
 
-# 3. Disable the "Block Public Access" security feature
 resource "aws_s3_bucket_public_access_block" "public_access" {
   bucket = aws_s3_bucket.portfolio_bucket.id
 
@@ -26,7 +23,6 @@ resource "aws_s3_bucket_public_access_block" "public_access" {
   restrict_public_buckets = false
 }
 
-# 4. Attach a Bucket Policy allowing public read access
 resource "aws_s3_bucket_policy" "public_read_access" {
   bucket = aws_s3_bucket.portfolio_bucket.id
 
@@ -36,26 +32,23 @@ resource "aws_s3_bucket_policy" "public_read_access" {
       {
         Sid       = "PublicReadGetObject"
         Effect    = "Allow"
-        Principal = "*" # The asterisk means "Anyone on the internet"
+        Principal = "*"
         Action    = "s3:GetObject"
         Resource  = "${aws_s3_bucket.portfolio_bucket.arn}/*"
       }
     ]
   })
 
-  # Terraform must remove the security block BEFORE applying this policy
   depends_on = [aws_s3_bucket_public_access_block.public_access]
 }
 
-# 5. Upload the HTML file
 resource "aws_s3_object" "index_html" {
   bucket       = aws_s3_bucket.portfolio_bucket.id
   key          = "index.html"
   source       = "index.html"
-  content_type = "text/html" # This is crucial! It tells browsers to render it as a webpage, not download it as a file.
+  content_type = "text/html" 
 }
 
-# 6. Output the final Website URL (Deliverable 1)
 output "website_url" {
   value = aws_s3_bucket_website_configuration.portfolio_website.website_endpoint
 }
