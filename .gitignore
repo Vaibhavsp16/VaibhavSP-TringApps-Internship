@@ -24,3 +24,6 @@ override.tf.json
 .terraform.tfstate.lock.info
 .terraformrc
 terraform.rc
+
+# Generated test data
+S3/advanced_s3/massive_dataset.csv
