@@ -1,0 +1,44 @@
+name: Enterprise Production Deployment Pipeline
+
+on:
+    push:
+        branches:
+            - main
+
+permissions:
+    contents: read
+
+jobs:
+    deploy:
+        name: Build & Infastructure Deploy
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout Code Repository
+              uses: actions/checkout@v4
+        
+            - name: Authenticate Cloud Session
+              uses: aws-actions/configure-aws-credentials@v4
+              with:
+                aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+                aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+                aws-region: us-east-1
+            
+            - name: Initialize Infrastructure Engine
+              run: terraform init
+            
+            - name: Sync Cloud Architecture Layout
+              id: tf_apply
+              run: | 
+                terraform apply -auto-approve
+                echo "BUCKET_NAME=$(terraform output -raw bucket_name)" >> $GITHUB_ENV
+                echo "DIST_ID=$(terraform output -raw cloudfront_distribution_id)" >> $GITHUB_ENV
+
+            - name: Mirror Web Assets to S3 Vault
+              run: |
+                aws s3 sync ./site s3://${{ env.BUCKET_NAME }} --delete
+
+            - name: Clear Global Edge Memory Caches
+              run: |
+                aws cloudfront create-invalidation --distribution-id ${{ env.DIST_ID }} --paths "/*"
+             
