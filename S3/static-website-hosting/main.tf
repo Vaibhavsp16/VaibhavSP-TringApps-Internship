@@ -1,3 +1,12 @@
+terraform {
+  backend "s3" {
+    bucket  = "vaibhav-static-website-tfstate-285977275740"
+    key     = "static-website-hosting/terraform.tfstate"
+    region  = "us-east-1"
+    encrypt = true
+  }
+}
+
 provider "aws" {
   region = var.aws_region
 }
