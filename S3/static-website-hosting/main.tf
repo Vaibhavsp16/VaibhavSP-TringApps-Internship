@@ -19,6 +19,24 @@ resource "aws_s3_bucket_public_access_block" "logs_private" {
   restrict_public_buckets = true
 }
 
+resource "aws_s3_bucket_ownership_controls" "logs_ownership" {
+  bucket = aws_s3_bucket.logs.id
+
+  rule {
+    object_ownership = "BucketOwnerPreferred"
+  }
+}
+
+resource "aws_s3_bucket_acl" "logs_acl" {
+  depends_on = [
+    aws_s3_bucket_ownership_controls.logs_ownership,
+    aws_s3_bucket_public_access_block.logs_private
+  ]
+
+  bucket = aws_s3_bucket.logs.id
+  acl    = "log-delivery-write"
+}
+
 resource "aws_s3_bucket" "origin" {
   bucket        = "${var.bucket_name}-origin-${random_id.suffix.hex}"
   force_destroy = true
