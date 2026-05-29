@@ -25,17 +25,21 @@ jobs:
                 aws-region: us-east-1
             
             - name: Initialize Infrastructure Engine
-              run: terraform init
+              run: |
+                cd "S3/static-website-hosting"
+                terraform init
             
             - name: Sync Cloud Architecture Layout
               id: tf_apply
               run: | 
+                cd "S3/static-website-hosting"
                 terraform apply -auto-approve
                 echo "BUCKET_NAME=$(terraform output -raw bucket_name)" >> $GITHUB_ENV
                 echo "DIST_ID=$(terraform output -raw cloudfront_distribution_id)" >> $GITHUB_ENV
 
             - name: Mirror Web Assets to S3 Vault
               run: |
+                cd "S3/static-website-hosting"
                 aws s3 sync ./site s3://${{ env.BUCKET_NAME }} --delete
 
             - name: Clear Global Edge Memory Caches
