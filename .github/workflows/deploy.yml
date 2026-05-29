@@ -39,7 +39,7 @@ jobs:
               run: | 
                 cd "S3/static-website-hosting"
                 terraform apply -auto-approve
-                echo "BUCKET_NAME=$(terraform output -raw bucket_name)" >> $GITHUB_ENV
+                echo "BUCKET_NAME=$(terraform output -raw origin_bucket_name)" >> $GITHUB_ENV
                 echo "DIST_ID=$(terraform output -raw cloudfront_distribution_id)" >> $GITHUB_ENV
 
             - name: Mirror Web Assets to S3 Vault

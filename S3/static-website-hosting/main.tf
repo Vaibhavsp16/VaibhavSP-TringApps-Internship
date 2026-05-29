@@ -7,12 +7,12 @@ resource "random_id" "suffix" {
 }
 
 resource "aws_s3_bucket" "logs" {
-  bucket = "${var.bucket_name}-logs-${random_id.suffix.hex}"
+  bucket        = "${var.bucket_name}-logs-${random_id.suffix.hex}"
   force_destroy = true
 }
 
 resource "aws_s3_bucket_public_access_block" "logs_private" {
-  bucket = aws_s3_bucket.logs.id
+  bucket                  = aws_s3_bucket.logs.id
   block_public_acls       = true
   block_public_policy     = true
   ignore_public_acls      = true
@@ -20,12 +20,12 @@ resource "aws_s3_bucket_public_access_block" "logs_private" {
 }
 
 resource "aws_s3_bucket" "origin" {
-  bucket = "${var.bucket_name}-origin-${random_id.suffix.hex}"
+  bucket        = "${var.bucket_name}-origin-${random_id.suffix.hex}"
   force_destroy = true
 }
 
 resource "aws_s3_bucket_public_access_block" "origin_private" {
-  bucket = aws_s3_bucket.origin.id
+  bucket                  = aws_s3_bucket.origin.id
   block_public_acls       = true
   block_public_policy     = true
   ignore_public_acls      = true
@@ -59,9 +59,9 @@ resource "aws_wafv2_web_acl" "waf" {
       }
     }
     visibility_config {
-      sampled_requests_enabled = true
+      sampled_requests_enabled   = true
       cloudwatch_metrics_enabled = true
-      metric_name = "WAFMasterMetrics"
+      metric_name                = "WAFMasterMetrics"
     }
   }
 
@@ -73,11 +73,11 @@ resource "aws_wafv2_web_acl" "waf" {
 }
 
 resource "aws_cloudfront_origin_access_control" "oac" {
-    name = "oac-sigv4-${random_id.suffix.hex}"
-    description = "Cryptographic signing for secure S3 access to CloudFront exclusively"
-    origin_access_control_origin_type = "s3"
-    signing_behavior = "always"
-    signing_protocol = "sigv4"
+  name                              = "oac-sigv4-${random_id.suffix.hex}"
+  description                       = "Cryptographic signing for secure S3 access to CloudFront exclusively"
+  origin_access_control_origin_type = "s3"
+  signing_behavior                  = "always"
+  signing_protocol                  = "sigv4"
 }
 
 resource "aws_cloudfront_distribution" "cdn" {
@@ -87,8 +87,8 @@ resource "aws_cloudfront_distribution" "cdn" {
   web_acl_id          = aws_wafv2_web_acl.waf.arn
 
   origin {
-    domain_name = aws_s3_bucket.origin.bucket_regional_domain_name
-    origin_id   = "S3OriginStorage"
+    domain_name              = aws_s3_bucket.origin.bucket_regional_domain_name
+    origin_id                = "S3OriginStorage"
     origin_access_control_id = aws_cloudfront_origin_access_control.oac.id
   }
 
@@ -100,8 +100,8 @@ resource "aws_cloudfront_distribution" "cdn" {
   default_cache_behavior {
     target_origin_id       = "S3OriginStorage"
     viewer_protocol_policy = "redirect-to-https"
-    allowed_methods = ["GET", "HEAD", "OPTIONS"]
-    cached_methods  = ["GET", "HEAD"]
+    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
+    cached_methods         = ["GET", "HEAD"]
 
     forwarded_values {
       query_string = false
@@ -110,9 +110,9 @@ resource "aws_cloudfront_distribution" "cdn" {
         forward = "none"
       }
     }
-    min_ttl                = 0
-    default_ttl            = 3600
-    max_ttl                = 86400
+    min_ttl     = 0
+    default_ttl = 3600
+    max_ttl     = 86400
   }
 
   restrictions {
@@ -127,24 +127,24 @@ resource "aws_cloudfront_distribution" "cdn" {
 }
 
 resource "aws_s3_bucket_policy" "allow_oac" {
-    bucket = aws_s3_bucket.origin.id
-    policy = data.aws_iam_policy_document.allow_oac.json
+  bucket = aws_s3_bucket.origin.id
+  policy = data.aws_iam_policy_document.oac_policy_doc.json
 }
 
 data "aws_iam_policy_document" "oac_policy_doc" {
-    statement {
-        actions = ["s3:GetObject", "s3:PutObject"]
-        resources = ["${aws_s3_bucket.origin.arn}/*"]
+  statement {
+    actions   = ["s3:GetObject", "s3:PutObject"]
+    resources = ["${aws_s3_bucket.origin.arn}/*"]
 
-        principals {
-            type = "Service"
-            identifiers = ["cloudfront.amazonaws.com"]
-        }
-
-        condition {
-            test = "StringEquals"
-            variable = "AWS:SourceArn"
-            values = [aws_cloudfront_distribution.cdn.arn]
-        }
+    principals {
+      type        = "Service"
+      identifiers = ["cloudfront.amazonaws.com"]
     }
+
+    condition {
+      test     = "StringEquals"
+      variable = "AWS:SourceArn"
+      values   = [aws_cloudfront_distribution.cdn.arn]
+    }
+  }
 }
