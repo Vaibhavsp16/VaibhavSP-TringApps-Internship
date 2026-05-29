@@ -1,8 +1,8 @@
 # Static Website Hosting on AWS S3, CloudFront, Terraform, and GitHub Actions
 
-This project deploys a static portfolio website to AWS using Terraform and GitHub Actions.
+This project deploys a static portfolio website to AWS with Terraform and GitHub Actions.
 
-The website files live in:
+Website source files:
 
 ```text
 S3/static-website-hosting/site/
@@ -10,16 +10,16 @@ S3/static-website-hosting/site/
 
 The infrastructure creates:
 
-- A private S3 origin bucket for the website files.
+- A private S3 origin bucket for website files.
 - A separate S3 logs bucket.
-- CloudFront distribution for public HTTPS delivery.
-- CloudFront Origin Access Control so users cannot directly read the private S3 bucket.
-- S3 bucket policy allowing only CloudFront to read the website files.
+- CloudFront distribution for HTTPS website delivery.
+- CloudFront Origin Access Control so the S3 bucket is not public.
+- S3 bucket policy that allows CloudFront to read objects.
 - CloudFront access logging.
 - S3 server access logging.
-- AWS WAF rate limiting for basic edge protection.
-- Remote Terraform state stored in a dedicated S3 backend bucket.
-- GitHub Actions deployment pipeline.
+- AWS WAF rate limiting.
+- Remote Terraform state stored in S3.
+- GitHub Actions deployment automation.
 
 ## Architecture
 
@@ -61,7 +61,7 @@ S3 backend bucket/static-website-hosting/terraform.tfstate
 
 ## Prerequisites
 
-Install these locally:
+Install:
 
 - Git
 - Terraform
@@ -69,7 +69,7 @@ Install these locally:
 - A GitHub account
 - An AWS account
 
-Verify local tools:
+Verify tools:
 
 ```bash
 git --version
@@ -77,54 +77,49 @@ terraform version
 aws --version
 ```
 
-Configure AWS CLI locally:
+Configure AWS CLI:
 
 ```bash
 aws configure
 ```
 
-Enter:
+Use:
 
 ```text
-AWS Access Key ID
-AWS Secret Access Key
 Default region: us-east-1
 Default output format: json
 ```
 
-Use `us-east-1` for this project because CloudFront WAF resources must be created in `us-east-1`.
+This project uses `us-east-1` because CloudFront WAF resources must be created there.
 
 ## AWS IAM Setup
 
-Create an IAM user or role for deployment. For a training or internship project, the simplest option is an IAM user with programmatic access.
+Create an IAM user or role for deployment.
 
-The deploy identity needs permissions for:
+The deployment identity needs access to:
 
 - S3
 - CloudFront
 - WAFv2
-- IAM policy document evaluation through Terraform provider APIs
-- Terraform state bucket access
+- Terraform state bucket
 
-For production, use least privilege. For learning, `AdministratorAccess` is commonly used temporarily, but remove broad access when the project is complete.
+For learning projects, `AdministratorAccess` is often used temporarily. For production, use least privilege.
 
-Required GitHub secrets:
+GitHub repository secrets required:
 
 ```text
 AWS_ACCESS_KEY_ID
 AWS_SECRET_ACCESS_KEY
 ```
 
-## Step 1: Clone or Fork the Repository
-
-Clone your repository:
+## Step 1: Clone or Fork
 
 ```bash
 git clone <YOUR_REPOSITORY_URL>
 cd <YOUR_REPOSITORY_FOLDER>
 ```
 
-Project commands in this guide assume the Terraform folder is:
+All Terraform commands are run from:
 
 ```text
 S3/static-website-hosting
@@ -132,15 +127,9 @@ S3/static-website-hosting
 
 ## Step 2: Create the Terraform Remote State Bucket
 
-Terraform needs a remote backend so GitHub Actions remembers previously created AWS resources.
+Terraform needs remote state so it remembers already-created AWS resources.
 
-Without remote state, every GitHub Actions run may create new S3 buckets and new CloudFront distributions.
-
-Choose a globally unique state bucket name. A good pattern is:
-
-```text
-<your-name>-static-website-tfstate-<aws-account-id>
-```
+Without remote state, GitHub Actions may create a new S3 bucket and CloudFront distribution on every run.
 
 Get your AWS account ID:
 
@@ -148,7 +137,13 @@ Get your AWS account ID:
 aws sts get-caller-identity --query Account --output text
 ```
 
-Create the backend bucket in `us-east-1`:
+Choose a globally unique state bucket name:
+
+```text
+<your-name>-static-website-tfstate-<aws-account-id>
+```
+
+Create the state bucket:
 
 ```bash
 aws s3api create-bucket \
@@ -180,7 +175,7 @@ aws s3api put-public-access-block \
   --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
 ```
 
-Important: never delete this Terraform state bucket unless you intentionally want Terraform to forget the infrastructure.
+Do not delete this bucket. It stores Terraform's memory.
 
 ## Step 3: Configure Terraform Backend
 
@@ -190,7 +185,7 @@ Open:
 S3/static-website-hosting/main.tf
 ```
 
-Update the backend block:
+Update:
 
 ```hcl
 terraform {
@@ -203,15 +198,15 @@ terraform {
 }
 ```
 
-In this repository, the current backend bucket is:
+Current project backend:
 
 ```text
 vaibhav-static-website-tfstate-285977275740
 ```
 
-If another person uses this project, they must replace that value with their own backend bucket name.
+Anyone reusing this project must replace that bucket with their own state bucket.
 
-## Step 4: Configure Project Variables
+## Step 4: Configure Variables
 
 Open:
 
@@ -219,7 +214,7 @@ Open:
 S3/static-website-hosting/variables.tf
 ```
 
-Current values:
+Current variables:
 
 ```hcl
 variable "aws_region" {
@@ -239,24 +234,24 @@ Change `bucket_name` for your own project:
 default = "your-name-static-website-bucket"
 ```
 
-Terraform appends a random suffix, so the actual buckets become:
+Terraform creates buckets like:
 
 ```text
 your-name-static-website-bucket-origin-xxxxxxxx
 your-name-static-website-bucket-logs-xxxxxxxx
 ```
 
-The random suffix is stored in Terraform state. After remote state is working, it remains stable across future deployments.
+The suffix stays stable after remote state is configured.
 
 ## Step 5: Add Website Files
 
-Place your static website files inside:
+Put website files here:
 
 ```text
 S3/static-website-hosting/site/
 ```
 
-Minimum required file:
+Minimum file:
 
 ```text
 index.html
@@ -271,17 +266,15 @@ script.js
 assets/
 ```
 
-The GitHub Actions workflow uploads everything inside `site/` to the active S3 origin bucket:
+The workflow uploads this folder:
 
 ```bash
 aws s3 sync ./site s3://${{ env.BUCKET_NAME }} --delete
 ```
 
-The `--delete` flag removes files from S3 that no longer exist locally.
+`--delete` removes files from S3 that were removed locally.
 
-## Step 6: Initialize and Validate Terraform Locally
-
-From the repository root:
+## Step 6: Initialize and Validate Terraform
 
 ```bash
 cd S3/static-website-hosting
@@ -290,135 +283,104 @@ terraform fmt
 terraform validate
 ```
 
-Expected result:
-
-```text
-Terraform has been successfully initialized.
-Success! The configuration is valid.
-```
-
-Optional dry run:
+Optional:
 
 ```bash
 terraform plan
 ```
 
-## Step 7: GitHub Repository Setup
+Expected validation result:
 
-Push the project to GitHub.
+```text
+Success! The configuration is valid.
+```
 
-The workflow file must be at:
+## Step 7: GitHub Setup
+
+The workflow must be located at:
 
 ```text
 .github/workflows/deploy.yml
 ```
 
-GitHub Actions only detects workflow files under the root `.github/workflows/` directory.
+Add GitHub secrets:
 
-## Step 8: Add GitHub Secrets
-
-In GitHub:
-
-1. Open your repository.
+1. Open your GitHub repository.
 2. Go to **Settings**.
 3. Go to **Secrets and variables**.
 4. Open **Actions**.
-5. Click **New repository secret**.
-6. Add:
+5. Add:
 
 ```text
 AWS_ACCESS_KEY_ID
 AWS_SECRET_ACCESS_KEY
 ```
 
-These are used by:
+## Step 8: Deployment Flow
 
-```yaml
-- name: Authenticate Cloud Session
-  uses: aws-actions/configure-aws-credentials@v4
-  with:
-    aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-    aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-    aws-region: us-east-1
-```
+The workflow runs on pushes to `main` when infrastructure, workflow, or website files change.
 
-## Step 9: GitHub Actions Deployment Flow
-
-The workflow runs when code is pushed to `main`:
-
-```yaml
-on:
-    push:
-        branches:
-            - main
-```
-
-The pipeline does this:
+It does:
 
 1. Checks out the repository.
 2. Authenticates to AWS.
 3. Installs Terraform.
 4. Runs `terraform init`.
 5. Runs `terraform apply -auto-approve`.
-6. Reads Terraform outputs:
+6. Reads Terraform outputs.
+7. Syncs `site/` files to S3.
+8. Invalidates CloudFront cache.
+
+Deployment command sequence inside GitHub Actions:
 
 ```bash
-terraform output -raw origin_bucket_name
-terraform output -raw cloudfront_distribution_id
+cd "S3/static-website-hosting"
+terraform init
+terraform apply -auto-approve
+aws s3 sync ./site s3://<origin-bucket> --delete
+aws cloudfront create-invalidation --distribution-id <distribution-id> --paths "/*"
 ```
 
-7. Uploads `site/` files to the S3 origin bucket.
-8. Invalidates CloudFront cache using:
-
-```bash
-aws cloudfront create-invalidation --distribution-id <DIST_ID> --paths "/*"
-```
-
-## Step 10: Push and Deploy
-
-From the repository root:
+## Step 9: Push and Deploy
 
 ```bash
 git status
 git add .
-git commit -m "Deploy static website hosting project"
+git commit -m "Deploy static website"
 git push origin main
 ```
 
-Then in GitHub:
+Then:
 
-1. Open the repository.
-2. Click **Actions**.
+1. Open GitHub.
+2. Go to **Actions**.
 3. Open the latest workflow run.
-4. Wait for all steps to complete successfully.
+4. Wait for success.
 
-## Step 11: Get the CloudFront Website URL
+## Step 10: View the Website
 
-After deployment, get the website URL locally:
+Get the CloudFront URL:
 
 ```bash
 cd S3/static-website-hosting
 terraform output cloudfront_url
 ```
 
-Example output:
+Example:
 
 ```text
-"https://dua88g8j3o5ks.cloudfront.net"
+https://dua88g8j3o5ks.cloudfront.net
 ```
-
-Open the URL in your browser.
 
 You can also find it in AWS:
 
-1. Go to **CloudFront**.
-2. Open **Distributions**.
-3. Select the active distribution.
-4. Copy the **Distribution domain name**.
+```text
+CloudFront -> Distributions -> Distribution domain name
+```
 
-## Step 12: Confirm Active Resources
+Use the CloudFront URL to view the site. The S3 bucket is private by design.
 
-Use Terraform outputs:
+## Step 11: Confirm Active Resources
 
 ```bash
 terraform output -raw origin_bucket_name
@@ -426,15 +388,7 @@ terraform output -raw cloudfront_distribution_id
 terraform output -raw cloudfront_url
 ```
 
-Example:
-
-```text
-Origin bucket: vaibhav-static-website-bucket-origin-5ff0f9da
-Distribution: E1DIT6DX9RHUG9
-Website: https://dua88g8j3o5ks.cloudfront.net
-```
-
-Use Terraform state to confirm the logs bucket:
+Find the logs bucket:
 
 ```bash
 terraform state show aws_s3_bucket.logs
@@ -446,9 +400,200 @@ Look for:
 bucket = "<logs-bucket-name>"
 ```
 
-## Caching Behavior
+## Useful AWS S3 Commands
 
-CloudFront caching is configured in `main.tf`:
+Set variables first.
+
+Bash:
+
+```bash
+cd S3/static-website-hosting
+ORIGIN_BUCKET=$(terraform output -raw origin_bucket_name)
+DIST_ID=$(terraform output -raw cloudfront_distribution_id)
+LOGS_BUCKET=$(terraform state show aws_s3_bucket.logs | awk -F'"' '/bucket +=/ {print $2; exit}')
+```
+
+PowerShell:
+
+```powershell
+cd S3/static-website-hosting
+$ORIGIN_BUCKET = terraform output -raw origin_bucket_name
+$DIST_ID = terraform output -raw cloudfront_distribution_id
+$LOGS_BUCKET = (terraform state show aws_s3_bucket.logs | Select-String 'bucket\s+=' | Select-Object -First 1).ToString().Split('"')[1]
+```
+
+### List Buckets and Objects
+
+List all buckets:
+
+```bash
+aws s3 ls
+```
+
+List website bucket files:
+
+```bash
+aws s3 ls s3://$ORIGIN_BUCKET
+```
+
+List recursively:
+
+```bash
+aws s3 ls s3://$ORIGIN_BUCKET --recursive
+```
+
+PowerShell:
+
+```powershell
+aws s3 ls s3://$ORIGIN_BUCKET --recursive
+```
+
+### Upload Files
+
+Upload one file:
+
+```bash
+aws s3 cp ./site/index.html s3://$ORIGIN_BUCKET/index.html
+```
+
+Upload an image:
+
+```bash
+aws s3 cp ./site/profile.jpg s3://$ORIGIN_BUCKET/profile.jpg
+```
+
+Upload the whole website:
+
+```bash
+aws s3 sync ./site s3://$ORIGIN_BUCKET --delete
+```
+
+Upload HTML with no-cache headers:
+
+```bash
+aws s3 cp ./site/index.html s3://$ORIGIN_BUCKET/index.html \
+  --cache-control "no-cache, no-store, must-revalidate" \
+  --content-type "text/html"
+```
+
+Upload an image with longer browser cache:
+
+```bash
+aws s3 cp ./site/profile.jpg s3://$ORIGIN_BUCKET/profile.jpg \
+  --cache-control "public, max-age=86400" \
+  --content-type "image/jpeg"
+```
+
+After manual uploads, invalidate CloudFront:
+
+```bash
+aws cloudfront create-invalidation --distribution-id $DIST_ID --paths "/*"
+```
+
+### Download Files
+
+Download one file:
+
+```bash
+aws s3 cp s3://$ORIGIN_BUCKET/index.html ./downloaded-index.html
+```
+
+Download the full website:
+
+```bash
+aws s3 sync s3://$ORIGIN_BUCKET ./downloaded-site
+```
+
+Download one folder or prefix:
+
+```bash
+aws s3 sync s3://$ORIGIN_BUCKET/assets ./downloaded-assets
+```
+
+### Inspect Metadata
+
+Check object metadata:
+
+```bash
+aws s3api head-object --bucket $ORIGIN_BUCKET --key index.html
+```
+
+Check image metadata:
+
+```bash
+aws s3api head-object --bucket $ORIGIN_BUCKET --key profile.jpg
+```
+
+Useful fields:
+
+```text
+ContentType
+CacheControl
+LastModified
+ETag
+ContentLength
+```
+
+### Delete Objects
+
+Delete one object:
+
+```bash
+aws s3 rm s3://$ORIGIN_BUCKET/old-file.html
+```
+
+Delete a folder or prefix:
+
+```bash
+aws s3 rm s3://$ORIGIN_BUCKET/old-assets/ --recursive
+```
+
+Use delete commands carefully. Normal deployments already sync local `site/` to S3.
+
+### Presigned URLs
+
+Create a temporary download URL valid for 15 minutes:
+
+```bash
+aws s3 presign s3://$ORIGIN_BUCKET/index.html --expires-in 900
+```
+
+Normal public viewing should use CloudFront, not presigned S3 URLs.
+
+## Useful CloudFront Commands
+
+List distributions:
+
+```bash
+aws cloudfront list-distributions \
+  --query "DistributionList.Items[].{Id:Id,Domain:DomainName,Enabled:Enabled,Origin:Origins.Items[0].DomainName}" \
+  --output table
+```
+
+Create invalidation:
+
+```bash
+aws cloudfront create-invalidation --distribution-id $DIST_ID --paths "/*"
+```
+
+Check distribution:
+
+```bash
+aws cloudfront get-distribution --id $DIST_ID
+```
+
+Check logging config:
+
+```bash
+aws cloudfront get-distribution-config \
+  --id $DIST_ID \
+  --query "DistributionConfig.Logging" \
+  --output table
+```
+
+## Caching
+
+CloudFront cache settings in `main.tf`:
 
 ```hcl
 min_ttl     = 0
@@ -459,68 +604,73 @@ max_ttl     = 86400
 Meaning:
 
 ```text
-default cache time: 1 hour
-maximum cache time: 1 day
+Default cache: 1 hour
+Maximum cache: 1 day
 ```
 
-Every GitHub Actions deployment also clears CloudFront cache:
+Every deployment runs:
 
 ```bash
-aws cloudfront create-invalidation --distribution-id ${{ env.DIST_ID }} --paths "/*"
+aws cloudfront create-invalidation --distribution-id <distribution-id> --paths "/*"
 ```
 
-So after every deployment, users should receive the latest files once the invalidation completes.
+So deployed changes should become visible after invalidation completes.
 
 ## Logging
 
-This project has two types of logging.
+### CloudFront Logs
 
-### CloudFront Access Logs
-
-Configured in `main.tf`:
-
-```hcl
-logging_config {
-  bucket = aws_s3_bucket.logs.bucket_domain_name
-  prefix = "cloudfront-edge-logs/"
-}
-```
-
-View logs in S3:
+Configured prefix:
 
 ```text
-<logs-bucket>/cloudfront-edge-logs/
+cloudfront-edge-logs/
 ```
 
-Example:
+List logs:
+
+```bash
+aws s3 ls s3://$LOGS_BUCKET/cloudfront-edge-logs/ --recursive
+```
+
+Download logs:
+
+```bash
+aws s3 sync s3://$LOGS_BUCKET/cloudfront-edge-logs/ ./cloudfront-logs
+```
+
+Extract a `.gz` log on Linux/macOS/Git Bash:
+
+```bash
+gzip -dk ./cloudfront-logs/<log-file-name>.gz
+```
+
+On Windows, download the `.gz` file and extract it using 7-Zip or another archive tool.
+
+### S3 Access Logs
+
+Configured prefix:
 
 ```text
-s3://vaibhav-static-website-bucket-logs-5ff0f9da/cloudfront-edge-logs/
+s3-access-logs/
 ```
 
-CloudFront logs are delivered as `.gz` files and may take several minutes to appear.
+List logs:
 
-### S3 Server Access Logs
-
-Configured in `main.tf`:
-
-```hcl
-resource "aws_s3_bucket_logging" "origin_logging" {
-  bucket        = aws_s3_bucket.origin.id
-  target_bucket = aws_s3_bucket.logs.id
-  target_prefix = "s3-access-logs/"
-}
+```bash
+aws s3 ls s3://$LOGS_BUCKET/s3-access-logs/ --recursive
 ```
 
-View logs in S3:
+Download logs:
 
-```text
-<logs-bucket>/s3-access-logs/
+```bash
+aws s3 sync s3://$LOGS_BUCKET/s3-access-logs/ ./s3-access-logs
 ```
 
-## Security Notes
+Logs can take several minutes to appear.
 
-The origin S3 bucket is private.
+## Security
+
+The S3 origin bucket is private.
 
 Public access is blocked:
 
@@ -531,36 +681,25 @@ ignore_public_acls      = true
 restrict_public_buckets = true
 ```
 
-CloudFront gets access through Origin Access Control:
+CloudFront accesses S3 through Origin Access Control:
 
 ```hcl
-resource "aws_cloudfront_origin_access_control" "oac" {
-  origin_access_control_origin_type = "s3"
-  signing_behavior                  = "always"
-  signing_protocol                  = "sigv4"
-}
+origin_access_control_origin_type = "s3"
+signing_behavior                  = "always"
+signing_protocol                  = "sigv4"
 ```
 
-The bucket policy allows CloudFront only:
-
-```hcl
-principals {
-  type        = "Service"
-  identifiers = ["cloudfront.amazonaws.com"]
-}
-```
+The bucket policy allows the CloudFront service principal only.
 
 ## WAF Protection
 
-This project creates a WAF Web ACL for CloudFront:
+The project creates a WAF Web ACL attached to CloudFront:
 
 ```hcl
-resource "aws_wafv2_web_acl" "waf" {
-  scope = "CLOUDFRONT"
-}
+scope = "CLOUDFRONT"
 ```
 
-The rule blocks an IP if it crosses the configured request rate:
+The rate limit rule blocks excessive requests from the same IP:
 
 ```hcl
 rate_based_statement {
@@ -569,17 +708,11 @@ rate_based_statement {
 }
 ```
 
-## Common Problems and Fixes
+## Troubleshooting
 
 ### `terraform: command not found`
 
-Cause:
-
-GitHub Actions runner does not have Terraform installed.
-
-Fix:
-
-The workflow must include:
+Add Terraform setup to GitHub Actions:
 
 ```yaml
 - name: Install Terraform CLI
@@ -588,149 +721,107 @@ The workflow must include:
     terraform_wrapper: false
 ```
 
-### Terraform creates new buckets on every run
+### Terraform creates new buckets every run
 
-Cause:
+Remote state is missing or misconfigured. Configure the S3 backend and run:
 
-Terraform state is not persisted.
-
-Fix:
-
-Use the remote S3 backend:
-
-```hcl
-terraform {
-  backend "s3" {
-    bucket  = "<YOUR_TERRAFORM_STATE_BUCKET>"
-    key     = "static-website-hosting/terraform.tfstate"
-    region  = "us-east-1"
-    encrypt = true
-  }
-}
+```bash
+terraform init -reconfigure
 ```
 
 ### `Reference to undeclared resource`
 
-Cause:
+Check that Terraform references match declared resource names.
 
-A Terraform resource or data source name does not match.
-
-Example fix:
+Example:
 
 ```hcl
 policy = data.aws_iam_policy_document.oac_policy_doc.json
 ```
 
-The referenced name must match:
+must match:
 
 ```hcl
 data "aws_iam_policy_document" "oac_policy_doc" {}
 ```
 
-### `NoSuchBucket` during S3 sync
+### `NoSuchBucket` during sync
 
-Cause:
-
-The workflow is reading the wrong Terraform output.
-
-Fix:
-
-The workflow should use:
+Make sure the workflow uses:
 
 ```bash
 terraform output -raw origin_bucket_name
 ```
 
-### Website still shows old content
+### Old content still appears
 
-Cause:
-
-CloudFront cache has not completed invalidation yet.
-
-Fix:
-
-Wait a few minutes and refresh. You can also check invalidations in:
+Check:
 
 ```text
 CloudFront -> Distribution -> Invalidations
 ```
 
-### Direct S3 website endpoint does not work
+Wait until invalidation is complete, then hard refresh the browser.
 
-This is expected.
+### Direct S3 URL does not work
 
-The S3 bucket is private. Use the CloudFront URL instead.
+Expected. The bucket is private. Use the CloudFront URL.
 
 ## Cleanup Old Duplicate Resources
 
-If Terraform was run before remote state was configured, AWS may contain duplicate S3 buckets and CloudFront distributions.
+If the project was deployed before remote state was configured, duplicate buckets and CloudFront distributions may exist.
 
 Keep:
 
-- The active origin bucket from:
+- Active origin bucket from `terraform output -raw origin_bucket_name`
+- Active CloudFront distribution from `terraform output -raw cloudfront_distribution_id`
+- Logs bucket from `terraform state show aws_s3_bucket.logs`
+- Terraform state bucket from the backend block
 
-```bash
-terraform output -raw origin_bucket_name
-```
+Delete only old duplicate buckets and distributions that Terraform does not manage.
 
-- The active CloudFront distribution from:
+CloudFront deletion:
 
-```bash
-terraform output -raw cloudfront_distribution_id
-```
+1. Disable old distribution.
+2. Wait until status becomes `Deployed`.
+3. Delete old distribution.
 
-- The logs bucket from:
+S3 bucket deletion:
 
-```bash
-terraform state show aws_s3_bucket.logs
-```
+1. Empty old bucket.
+2. Delete old bucket.
 
-- The Terraform state bucket configured in the backend block.
+Never delete the Terraform state bucket unless you are permanently retiring the project.
 
-Delete only old duplicate S3 buckets and old duplicate CloudFront distributions that are not in Terraform state.
+## Destroy the Project
 
-CloudFront deletion process:
-
-1. Open CloudFront.
-2. Select the old distribution.
-3. Disable it.
-4. Wait until status becomes `Deployed`.
-5. Delete it.
-
-S3 bucket deletion process:
-
-1. Empty the old bucket.
-2. Delete the old bucket.
-
-Do not delete the Terraform state bucket.
-
-## Destroying the Project
-
-If you intentionally want to remove the website infrastructure:
+To remove Terraform-managed infrastructure:
 
 ```bash
 cd S3/static-website-hosting
 terraform destroy
 ```
 
-This removes resources managed by Terraform.
-
-After destroy, manually decide whether to keep or delete the Terraform state bucket. For normal project history, keep it. For permanent cleanup, delete it only after you are sure the project is no longer needed.
+After destroy, decide manually whether to keep or delete the Terraform state bucket.
 
 ## Maintenance Checklist
 
-For future updates:
+For future website updates:
 
-1. Edit files inside `S3/static-website-hosting/site/`.
+1. Edit files in `S3/static-website-hosting/site/`.
 2. Commit and push to `main`.
 3. Watch GitHub Actions.
 4. Open the CloudFront URL.
-5. Check CloudFront invalidation if old content appears.
-6. Check S3 logs bucket if traffic logs are needed.
+5. Check invalidation if old content appears.
+6. Check logs bucket if traffic logs are needed.
+
+For documentation-only updates:
+
+1. Edit `README.md`.
+2. Commit and push.
+3. The workflow should not redeploy if only README files changed.
 
 ## Current Project Values
-
-These values are specific to the current deployment:
 
 ```text
 Terraform state bucket:

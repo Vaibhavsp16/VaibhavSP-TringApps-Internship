@@ -4,6 +4,13 @@ on:
     push:
         branches:
             - main
+        paths:
+            - ".github/workflows/deploy.yml"
+            - "S3/static-website-hosting/main.tf"
+            - "S3/static-website-hosting/outputs.tf"
+            - "S3/static-website-hosting/variables.tf"
+            - "S3/static-website-hosting/.terraform.lock.hcl"
+            - "S3/static-website-hosting/site/**"
 
 permissions:
     contents: read
