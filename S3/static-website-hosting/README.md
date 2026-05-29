@@ -198,10 +198,10 @@ terraform {
 }
 ```
 
-Current project backend:
+Example backend bucket:
 
 ```text
-vaibhav-static-website-tfstate-285977275740
+<YOUR_TERRAFORM_STATE_BUCKET>
 ```
 
 Anyone reusing this project must replace that bucket with their own state bucket.
@@ -224,7 +224,7 @@ variable "aws_region" {
 
 variable "bucket_name" {
   type    = string
-  default = "vaibhav-static-website-bucket"
+  default = "<YOUR_WEBSITE_BUCKET_PREFIX>"
 }
 ```
 
@@ -369,7 +369,7 @@ terraform output cloudfront_url
 Example:
 
 ```text
-https://dua88g8j3o5ks.cloudfront.net
+https://<YOUR_CLOUDFRONT_DOMAIN>.cloudfront.net
 ```
 
 You can also find it in AWS:
@@ -825,16 +825,16 @@ For documentation-only updates:
 
 ```text
 Terraform state bucket:
-vaibhav-static-website-tfstate-285977275740
+<YOUR_TERRAFORM_STATE_BUCKET>
 
 Active origin bucket:
-vaibhav-static-website-bucket-origin-5ff0f9da
+<YOUR_ORIGIN_BUCKET>
 
 Active logs bucket:
-vaibhav-static-website-bucket-logs-5ff0f9da
+<YOUR_LOGS_BUCKET>
 
 Active CloudFront distribution:
-E1DIT6DX9RHUG9
+<YOUR_CLOUDFRONT_DISTRIBUTION_ID>
 ```
 
 If another person forks or reuses this project, they should replace the backend bucket and `bucket_name` variable with their own values.
