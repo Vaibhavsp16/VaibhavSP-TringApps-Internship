@@ -2,25 +2,17 @@ provider "aws" {
   region = var.aws_region
 }
 
-resource "aws_dynamodb_table" "feedback_table" {
-  name           = "${var.project_name}-table-${var.environment}"
-  billing_mode   = "PAY_PER_REQUEST"
-  hash_key       = "type"
-  range_key      = "timestamp"
+resource "aws_s3_bucket" "feedback_storage_bucket" {
+  bucket        = "${var.project_name}-storage-${var.environment}-${random_string.suffix.result}"
+  force_destroy = true
+}
 
-  attribute {
-    name = "type"
-    type = "S"
-  }
-  attribute {
-    name = "timestamp"
-    type = "S"
-  }
-
-  tags = {
-    Project     = var.project_name
-    Environment = var.environment
-  }
+resource "aws_s3_bucket_public_access_block" "block_storage_public" {
+  bucket                  = aws_s3_bucket.feedback_storage_bucket.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
 }
 
 resource "aws_cognito_user_pool" "student_pool" {
@@ -74,8 +66,8 @@ resource "aws_iam_role_policy_attachment" "lambda_logs" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-resource "aws_iam_role_policy" "lambda_dynamodb_policy" {
-    name = "${var.project_name}-dynamodb-policy-${var.environment}"
+resource "aws_iam_role_policy" "lambda_s3_policy" {
+    name = "${var.project_name}-s3-policy-${var.environment}"
     role = aws_iam_role.lambda_exec_role.id
     policy = jsonencode({
         Version = "2012-10-17"
@@ -83,10 +75,14 @@ resource "aws_iam_role_policy" "lambda_dynamodb_policy" {
             {
                 Effect = "Allow"
                 Action = [
-                    "dynamodb:PutItem",
-                    "dynamodb:Query"
+                    "s3:PutObject",
+                    "s3:GetObject",
+                    "s3:ListBucket"
                 ]
-                Resource = aws_dynamodb_table.feedback_table.arn
+                Resource = [
+                    aws_s3_bucket.feedback_storage_bucket.arn,
+                    "${aws_s3_bucket.feedback_storage_bucket.arn}/*"
+                ]
             }
         ]
     })
@@ -114,7 +110,7 @@ resource "aws_lambda_function" "post_feedback_lambda" {
 
   environment {
     variables = {
-      TABLE_NAME = aws_dynamodb_table.feedback_table.name
+      BUCKET_NAME = aws_s3_bucket.feedback_storage_bucket.id
     }
   }
 }
@@ -129,7 +125,7 @@ resource "aws_lambda_function" "get_feedback_lambda" {
 
   environment {
     variables = {
-      TABLE_NAME = aws_dynamodb_table.feedback_table.name
+      BUCKET_NAME = aws_s3_bucket.feedback_storage_bucket.id
     }
   }
 }

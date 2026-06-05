@@ -4,10 +4,8 @@ import os
 import datetime
 import uuid
 
-TABLE_NAME = os.environ['TABLE_NAME']
-
-dynamodb = boto3.resource('dynamodb')
-table = dynamodb.Table(TABLE_NAME)
+BUCKET_NAME = os.environ['BUCKET_NAME']
+s3_client = boto3.client('s3')
 
 def lambda_handler(event, context):
     try:
@@ -30,15 +28,20 @@ def lambda_handler(event, context):
             }
         
         timestamp = datetime.datetime.utcnow().isoformat()
+        feedback_id = str(uuid.uuid4())
 
-        table.put_item(
-            Item={
-                'type': 'FEEDBACK',
-                'timestamp': timestamp,
-                'feedback_id': str(uuid.uuid4()),
-                'username': username,
-                'feedback': feedback_text
-            }
+        item = {
+            'timestamp': timestamp,
+            'feedback_id': feedback_id,
+            'username': username,
+            'feedback': feedback_text
+        }
+
+        s3_client.put_object(
+            Bucket=BUCKET_NAME,
+            Key=f"feedback/{timestamp}_{feedback_id}.json",
+            Body=json.dumps(item),
+            ContentType='application/json'
         )
 
         return {
