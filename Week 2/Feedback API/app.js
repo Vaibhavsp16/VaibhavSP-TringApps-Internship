@@ -240,14 +240,17 @@ async function submitFeedback() {
                     alert("Admin: Please enter the Secret Key in the 'Admin Decryption Layer' first to encrypt your token before submitting.");
                     return;
                 }
-                const customPayload = {
-                    role: "Admin",
-                    email: loggedInEmail,
-                    permissions: ["view_feed", "download_reports", "manage_portal"],
-                    system: "Feedback System API",
-                    verified: true
+                const combined = {
+                    jwt: idToken,
+                    custom_payload: {
+                        role: "Admin",
+                        email: loggedInEmail,
+                        permissions: ["view_feed", "download_reports", "manage_portal"],
+                        system: "Feedback System API",
+                        verified: true
+                    }
                 };
-                const encrypted = CryptoJS.AES.encrypt(JSON.stringify(customPayload), secretKey).toString();
+                const encrypted = CryptoJS.AES.encrypt(JSON.stringify(combined), secretKey).toString();
                 payload.encrypted_token = encrypted;
             }
         }
@@ -291,6 +294,7 @@ async function fetchFeedback() {
             let tokenHtml = '';
 
             if (item.username === 'vaibhavsp16@gmail.com') {
+                let decryptedToken = null;
                 let decryptSuccess = false;
 
                 if (secretKey && item.encrypted_token) {
@@ -298,8 +302,9 @@ async function fetchFeedback() {
                         const bytes = CryptoJS.AES.decrypt(item.encrypted_token, secretKey);
                         const decrypted = bytes.toString(CryptoJS.enc.Utf8);
                         if (decrypted) {
-                            const adminObj = JSON.parse(decrypted);
-                            if (adminObj && adminObj.role === 'Admin') {
+                            const combined = JSON.parse(decrypted);
+                            if (combined && combined.jwt && combined.custom_payload && combined.custom_payload.role === 'Admin') {
+                                decryptedToken = combined.jwt;
                                 decryptSuccess = true;
                             }
                         }
@@ -309,6 +314,15 @@ async function fetchFeedback() {
 
                 if (decryptSuccess) {
                     displayName = `${item.username} (Admin)`;
+                    const tokenId = `token-details-${index}`;
+                    tokenHtml = `
+                        <div style="margin-top: 10px; font-size: 0.85em; background: #eef2f7; padding: 10px; border-radius: 4px; border-left: 3px solid #ffc107;">
+                            <button onclick="document.getElementById('${tokenId}').classList.toggle('hidden')" style="padding: 4px 8px; font-size: 0.8em; width: auto; background-color: #6c757d; margin-bottom: 5px;">
+                                Toggle Admin JWT Token
+                            </button>
+                            <pre id="${tokenId}" class="hidden" style="white-space: pre-wrap; word-break: break-all; margin: 5px 0 0 0; font-family: monospace; background: #fff; padding: 5px; border: 1px solid #ccc; border-radius: 3px;">${decryptedToken}</pre>
+                        </div>
+                    `;
                 }
             }
 
@@ -357,9 +371,9 @@ async function downloadFeedback() {
                         const bytes = CryptoJS.AES.decrypt(newItem.encrypted_token, secretKey);
                         const decrypted = bytes.toString(CryptoJS.enc.Utf8);
                         if (decrypted) {
-                            const adminObj = JSON.parse(decrypted);
-                            if (adminObj && adminObj.role === 'Admin') {
-                                newItem.admin_payload = adminObj;
+                            const combined = JSON.parse(decrypted);
+                            if (combined && combined.custom_payload && combined.custom_payload.role === 'Admin') {
+                                newItem.admin_payload = combined.custom_payload;
                             }
                         }
                     } catch (e) {
