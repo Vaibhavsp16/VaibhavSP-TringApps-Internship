@@ -33,6 +33,28 @@ resource "aws_cognito_user_pool" "student_pool" {
     pre_sign_up = aws_lambda_function.auto_confirm_lambda.arn
   }
 
+  schema {
+    name                 = "role"
+    attribute_data_type  = "String"
+    mutable              = true
+    required             = false
+    string_attribute_constraints {
+      min_length = 1
+      max_length = 256
+    }
+  }
+
+  schema {
+    name                 = "permissions"
+    attribute_data_type  = "String"
+    mutable              = true
+    required             = false
+    string_attribute_constraints {
+      min_length = 1
+      max_length = 256
+    }
+  }
+
   tags = {
     Environment = var.environment
   }
@@ -43,6 +65,8 @@ resource "aws_cognito_user_pool_client" "student_client" {
   user_pool_id = aws_cognito_user_pool.student_pool.id
   generate_secret = false
   explicit_auth_flows = ["ALLOW_USER_PASSWORD_AUTH", "ALLOW_REFRESH_TOKEN_AUTH", "ALLOW_USER_SRP_AUTH"]
+  read_attributes  = ["email", "custom:role", "custom:permissions"]
+  write_attributes = ["email", "custom:role", "custom:permissions"]
 }
 
 resource "aws_iam_role" "lambda_exec_role" {

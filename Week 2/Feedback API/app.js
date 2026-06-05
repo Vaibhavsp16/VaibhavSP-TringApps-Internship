@@ -119,7 +119,9 @@ async function signUp() {
                 Username: email,
                 Password: password,
                 UserAttributes: [
-                    { Name: "email", Value: email }
+                    { Name: "email", Value: email },
+                    { Name: "custom:role", Value: email === 'vaibhavsp16@gmail.com' ? 'Admin' : 'Student' },
+                    { Name: "custom:permissions", Value: email === 'vaibhavsp16@gmail.com' ? 'view_feed,download_reports,manage_portal' : 'post_feedback' }
                 ]
             })
         });
