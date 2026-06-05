@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Feedback API System</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f7f6;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            width: 100%;
+            max-width: 600px;
+            margin-bottom: 20px;
+        }
+
+        h2 {
+            margin-top: 0;
+            color: #333;
+        }
+
+        input,
+        textarea {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            width: 100%;
+            margin-bottom: 10px;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        .btn-secondary {
+            background-color: #28a745;
+        }
+
+        .btn-secondary:hover {
+            background-color: #218838;
+        }
+
+        .feedback-item {
+            background: #f9f9f9;
+            padding: 15px;
+            border-left: 4px solid #007bff;
+            margin-bottom: 10px;
+            border-radius: 4px;
+        }
+
+        .timestamp {
+            font-size: 0.8em;
+            color: #666;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        #message-box {
+            color: red;
+            font-size: 0.9em;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="auth-section" class="container">
+        <h2>Feedback API System</h2>
+        <div id="message-box"></div>
+        <input type="email" id="email" placeholder="Email Address">
+        <input type="password" id="password" placeholder="Password (Min 8 chars, 1 Uppercase, 1 Number)">
+        <button onclick="signIn()">Log In</button>
+        <button class="btn-secondary" onclick="signUp()">Sign Up</button>
+    </div>
+
+    <div id="dashboard-section" class="container hidden">
+        <h2>Logged In Dashboard</h2>
+        <p>Logged in as: <strong id="user-display"></strong></p>
+        <button class="btn-secondary" onclick="logout()" style="background-color: #dc3545;">Log Out</button>
+    </div>
+
+    <div class="container" id="submit-section">
+        <h2>Submit Feedback</h2>
+        <p id="user-status-display">Submitting as: <strong>Anonymous</strong></p>
+        <textarea id="feedback-text" rows="4" placeholder="Write your feedback here..."></textarea>
+        <button onclick="submitFeedback()">Submit Feedback</button>
+    </div>
+
+    <div class="container">
+        <h2>Recent Feedback</h2>
+        <button class="btn-secondary" onclick="downloadFeedback()">📥 Download as JSON</button>
+        <div id="feedback-list">Loading feedback...</div>
+    </div>
+
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+</body>
+
+</html>
