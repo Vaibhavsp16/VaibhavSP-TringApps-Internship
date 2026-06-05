@@ -528,7 +528,8 @@ resource "aws_s3_object" "config_js" {
 window.API_CONFIG = {
   API_URL: "${aws_api_gateway_stage.api_stage.invoke_url}/feedback",
   CLIENT_ID: "${aws_cognito_user_pool_client.student_client.id}",
-  REGION: "${var.aws_region}"
+  REGION: "${var.aws_region}",
+  ADMIN_SECRET_HASH: "${sha256(var.admin_secret_key)}"
 };
 EOF
 }

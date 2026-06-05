@@ -15,3 +15,9 @@ variable "project_name" {
   type        = string
   default     = "student-feedback"
 }
+
+variable "admin_secret_key" {
+  description = "The secret key used to encrypt and decrypt the admin session token."
+  type        = string
+  default     = "TringAppsAdminSecret2026"
+}

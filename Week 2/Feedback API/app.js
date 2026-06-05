@@ -20,7 +20,7 @@ window.onload = () => {
             document.getElementById('user-display').innerText = loggedInEmail;
         }
         document.getElementById('user-status-display').innerHTML = `Submitting as: <strong>${loggedInEmail}</strong>`;
-        
+
         if (secretKey) {
             document.getElementById('secret-key-input').value = secretKey;
             document.getElementById('secret-key-status').innerText = 'Secret key active';
@@ -48,7 +48,6 @@ function validateInputs(email, password) {
         return false;
     }
 
-    // Email validation
     if (email.includes(" ")) {
         showMessage("Error: Email address must not contain spaces.");
         return false;
@@ -73,7 +72,6 @@ function validateInputs(email, password) {
         return false;
     }
 
-    // Password validation (Min 8 chars, 1 Uppercase, 1 Number, 1 Lowercase)
     if (password.length < 8) {
         showMessage("Error: Password must be at least 8 characters long.");
         return false;
@@ -165,8 +163,7 @@ async function signIn() {
         }
         document.getElementById('user-status-display').innerHTML = `Submitting as: <strong>${email}</strong>`;
         showMessage("");
-        fetchFeedback(); // Refresh view upon login (decrypted tokens will show if secretKey was already set)
-
+        fetchFeedback();
     } catch (error) {
         showMessage("Login Failed: " + error.message);
     }
@@ -215,8 +212,7 @@ async function submitFeedback() {
         const payload = { feedback: feedbackText };
         if (loggedInEmail) {
             payload.username = loggedInEmail;
-            
-            // If admin, verify and apply encryption
+
             if (loggedInEmail === 'vaibhavsp16@gmail.com') {
                 if (!secretKey) {
                     alert("Admin: Please enter the Secret Key in the 'Admin Decryption Layer' first to encrypt your token before submitting.");
@@ -278,7 +274,6 @@ async function fetchFeedback() {
                             decryptSuccess = true;
                         }
                     } catch (e) {
-                        // ignore decryption errors
                     }
                 }
 
@@ -331,8 +326,7 @@ async function downloadFeedback() {
         }
 
         let data = await response.json();
-        
-        // Decrypt admin tokens if secretKey is set
+
         if (secretKey) {
             data = data.map(item => {
                 if (item.username === 'vaibhavsp16@gmail.com' && item.encrypted_token) {
@@ -343,7 +337,6 @@ async function downloadFeedback() {
                             return { ...item, decrypted_admin_token: decrypted };
                         }
                     } catch (e) {
-                        // ignore
                     }
                 }
                 return item;
