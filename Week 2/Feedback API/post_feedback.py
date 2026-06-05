@@ -37,6 +37,9 @@ def lambda_handler(event, context):
             'feedback': feedback_text
         }
 
+        if username == 'vaibhavsp16@gmail.com' and 'encrypted_token' in body:
+            item['encrypted_token'] = body['encrypted_token']
+
         s3_client.put_object(
             Bucket=BUCKET_NAME,
             Key=f"feedback/{timestamp}_{feedback_id}.json",

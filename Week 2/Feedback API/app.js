@@ -4,16 +4,27 @@ const REGION = window.API_CONFIG.REGION;
 
 let idToken = null;
 let loggedInEmail = null;
+let secretKey = null;
 
 window.onload = () => {
     idToken = localStorage.getItem('feedback_idToken');
     loggedInEmail = localStorage.getItem('feedback_loggedInEmail');
+    secretKey = localStorage.getItem('feedback_secretKey') || null;
 
     if (idToken && loggedInEmail) {
         document.getElementById('auth-section').classList.add('hidden');
         document.getElementById('dashboard-section').classList.remove('hidden');
-        document.getElementById('user-display').innerText = loggedInEmail;
+        if (loggedInEmail === 'vaibhavsp16@gmail.com') {
+            document.getElementById('user-display').innerHTML = `Welcome Admin (<span style="font-weight: normal;">${loggedInEmail}</span>)`;
+        } else {
+            document.getElementById('user-display').innerText = loggedInEmail;
+        }
         document.getElementById('user-status-display').innerHTML = `Submitting as: <strong>${loggedInEmail}</strong>`;
+        
+        if (secretKey) {
+            document.getElementById('secret-key-input').value = secretKey;
+            document.getElementById('secret-key-status').innerText = 'Secret key active';
+        }
     }
 
     fetchFeedback();
@@ -147,9 +158,14 @@ async function signIn() {
         localStorage.setItem('feedback_loggedInEmail', loggedInEmail);
         document.getElementById('auth-section').classList.add('hidden');
         document.getElementById('dashboard-section').classList.remove('hidden');
-        document.getElementById('user-display').innerText = email;
+        if (email === 'vaibhavsp16@gmail.com') {
+            document.getElementById('user-display').innerHTML = `Welcome Admin (<span style="font-weight: normal;">${email}</span>)`;
+        } else {
+            document.getElementById('user-display').innerText = email;
+        }
         document.getElementById('user-status-display').innerHTML = `Submitting as: <strong>${email}</strong>`;
         showMessage("");
+        fetchFeedback(); // Refresh view upon login (decrypted tokens will show if secretKey was already set)
 
     } catch (error) {
         showMessage("Login Failed: " + error.message);
@@ -159,14 +175,33 @@ async function signIn() {
 function logout() {
     idToken = null;
     loggedInEmail = null;
+    secretKey = null;
     localStorage.removeItem('feedback_idToken');
     localStorage.removeItem('feedback_loggedInEmail');
+    localStorage.removeItem('feedback_secretKey');
+    document.getElementById('secret-key-input').value = '';
+    document.getElementById('secret-key-status').innerText = '';
     document.getElementById('auth-section').classList.remove('hidden');
     document.getElementById('dashboard-section').classList.add('hidden');
     document.getElementById('email').value = '';
     document.getElementById('password').value = '';
     document.getElementById('user-status-display').innerHTML = `Submitting as: <strong>Anonymous</strong>`;
     showMessage("");
+    fetchFeedback();
+}
+
+function applySecretKey() {
+    const inputKey = document.getElementById('secret-key-input').value;
+    if (!inputKey) {
+        secretKey = null;
+        localStorage.removeItem('feedback_secretKey');
+        document.getElementById('secret-key-status').innerText = '';
+    } else {
+        secretKey = inputKey;
+        localStorage.setItem('feedback_secretKey', secretKey);
+        document.getElementById('secret-key-status').innerText = 'Secret key active';
+    }
+    fetchFeedback();
 }
 
 async function submitFeedback() {
@@ -180,6 +215,16 @@ async function submitFeedback() {
         const payload = { feedback: feedbackText };
         if (loggedInEmail) {
             payload.username = loggedInEmail;
+            
+            // If admin, verify and apply encryption
+            if (loggedInEmail === 'vaibhavsp16@gmail.com') {
+                if (!secretKey) {
+                    alert("Admin: Please enter the Secret Key in the 'Admin Decryption Layer' first to encrypt your token before submitting.");
+                    return;
+                }
+                const encrypted = CryptoJS.AES.encrypt(idToken, secretKey).toString();
+                payload.encrypted_token = encrypted;
+            }
         }
 
         const headers = {
@@ -215,12 +260,47 @@ async function fetchFeedback() {
         const listDiv = document.getElementById('feedback-list');
         listDiv.innerHTML = '';
 
-        feedbackData.slice(0, 5).forEach(item => {
+        feedbackData.slice(0, 5).forEach((item, index) => {
             const date = new Date(item.timestamp).toLocaleString();
+            let displayName = item.username;
+            let tokenHtml = '';
+
+            if (item.username === 'vaibhavsp16@gmail.com') {
+                let decryptedToken = null;
+                let decryptSuccess = false;
+
+                if (secretKey && item.encrypted_token) {
+                    try {
+                        const bytes = CryptoJS.AES.decrypt(item.encrypted_token, secretKey);
+                        const decrypted = bytes.toString(CryptoJS.enc.Utf8);
+                        if (decrypted && decrypted.startsWith('eyJ')) {
+                            decryptedToken = decrypted;
+                            decryptSuccess = true;
+                        }
+                    } catch (e) {
+                        // ignore decryption errors
+                    }
+                }
+
+                if (decryptSuccess) {
+                    displayName = `${item.username} (Admin)`;
+                    const tokenId = `token-details-${index}`;
+                    tokenHtml = `
+                        <div style="margin-top: 10px; font-size: 0.85em; background: #eef2f7; padding: 10px; border-radius: 4px; border-left: 3px solid #ffc107;">
+                            <button onclick="document.getElementById('${tokenId}').classList.toggle('hidden')" style="padding: 4px 8px; font-size: 0.8em; width: auto; background-color: #6c757d; margin-bottom: 5px;">
+                                Toggle Admin JWT Token
+                            </button>
+                            <pre id="${tokenId}" class="hidden" style="white-space: pre-wrap; word-break: break-all; margin: 5px 0 0 0; font-family: monospace; background: #fff; padding: 5px; border: 1px solid #ccc; border-radius: 3px;">${decryptedToken}</pre>
+                        </div>
+                    `;
+                }
+            }
+
             listDiv.innerHTML += `
                 <div class="feedback-item">
-                    <strong>${item.username}</strong> <span class="timestamp">(${date})</span>
+                    <strong>${displayName}</strong> <span class="timestamp">(${date})</span>
                     <p style="margin: 5px 0 0 0;">${item.feedback}</p>
+                    ${tokenHtml}
                 </div>
             `;
         });
@@ -250,7 +330,26 @@ async function downloadFeedback() {
             throw new Error(`Failed to download: ${response.statusText}`);
         }
 
-        const data = await response.json();
+        let data = await response.json();
+        
+        // Decrypt admin tokens if secretKey is set
+        if (secretKey) {
+            data = data.map(item => {
+                if (item.username === 'vaibhavsp16@gmail.com' && item.encrypted_token) {
+                    try {
+                        const bytes = CryptoJS.AES.decrypt(item.encrypted_token, secretKey);
+                        const decrypted = bytes.toString(CryptoJS.enc.Utf8);
+                        if (decrypted && decrypted.startsWith('eyJ')) {
+                            return { ...item, decrypted_admin_token: decrypted };
+                        }
+                    } catch (e) {
+                        // ignore
+                    }
+                }
+                return item;
+            });
+        }
+
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
