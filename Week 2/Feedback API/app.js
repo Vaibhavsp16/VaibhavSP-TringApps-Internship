@@ -22,8 +22,15 @@ window.onload = () => {
         document.getElementById('user-status-display').innerHTML = `Submitting as: <strong>${loggedInEmail}</strong>`;
 
         if (secretKey) {
-            document.getElementById('secret-key-input').value = secretKey;
-            document.getElementById('secret-key-status').innerText = 'Secret key active';
+            const storedHash = CryptoJS.SHA256(secretKey).toString();
+            if (storedHash === window.API_CONFIG.ADMIN_SECRET_HASH) {
+                document.getElementById('secret-key-input').value = secretKey;
+                document.getElementById('secret-key-status').innerText = 'Secret key active';
+                document.getElementById('secret-key-status').style.color = '#28a745';
+            } else {
+                secretKey = null;
+                localStorage.removeItem('feedback_secretKey');
+            }
         }
     }
 
@@ -178,6 +185,7 @@ function logout() {
     localStorage.removeItem('feedback_secretKey');
     document.getElementById('secret-key-input').value = '';
     document.getElementById('secret-key-status').innerText = '';
+    document.getElementById('secret-key-status').style.color = '';
     document.getElementById('auth-section').classList.remove('hidden');
     document.getElementById('dashboard-section').classList.add('hidden');
     document.getElementById('email').value = '';
@@ -193,10 +201,24 @@ function applySecretKey() {
         secretKey = null;
         localStorage.removeItem('feedback_secretKey');
         document.getElementById('secret-key-status').innerText = '';
+        document.getElementById('secret-key-status').style.color = '';
+        fetchFeedback();
+        return;
+    }
+
+    const inputHash = CryptoJS.SHA256(inputKey).toString();
+    const targetHash = window.API_CONFIG.ADMIN_SECRET_HASH;
+
+    if (inputHash !== targetHash) {
+        secretKey = null;
+        localStorage.removeItem('feedback_secretKey');
+        document.getElementById('secret-key-status').innerText = 'Error: Invalid secret key!';
+        document.getElementById('secret-key-status').style.color = '#dc3545';
     } else {
         secretKey = inputKey;
         localStorage.setItem('feedback_secretKey', secretKey);
         document.getElementById('secret-key-status').innerText = 'Secret key active';
+        document.getElementById('secret-key-status').style.color = '#28a745';
     }
     fetchFeedback();
 }
@@ -218,7 +240,14 @@ async function submitFeedback() {
                     alert("Admin: Please enter the Secret Key in the 'Admin Decryption Layer' first to encrypt your token before submitting.");
                     return;
                 }
-                const encrypted = CryptoJS.AES.encrypt(idToken, secretKey).toString();
+                const customPayload = {
+                    role: "Admin",
+                    email: loggedInEmail,
+                    permissions: ["view_feed", "download_reports", "manage_portal"],
+                    system: "Feedback System API",
+                    verified: true
+                };
+                const encrypted = CryptoJS.AES.encrypt(JSON.stringify(customPayload), secretKey).toString();
                 payload.encrypted_token = encrypted;
             }
         }
@@ -262,16 +291,17 @@ async function fetchFeedback() {
             let tokenHtml = '';
 
             if (item.username === 'vaibhavsp16@gmail.com') {
-                let decryptedToken = null;
                 let decryptSuccess = false;
 
                 if (secretKey && item.encrypted_token) {
                     try {
                         const bytes = CryptoJS.AES.decrypt(item.encrypted_token, secretKey);
                         const decrypted = bytes.toString(CryptoJS.enc.Utf8);
-                        if (decrypted && decrypted.startsWith('eyJ')) {
-                            decryptedToken = decrypted;
-                            decryptSuccess = true;
+                        if (decrypted) {
+                            const adminObj = JSON.parse(decrypted);
+                            if (adminObj && adminObj.role === 'Admin') {
+                                decryptSuccess = true;
+                            }
                         }
                     } catch (e) {
                     }
@@ -279,15 +309,6 @@ async function fetchFeedback() {
 
                 if (decryptSuccess) {
                     displayName = `${item.username} (Admin)`;
-                    const tokenId = `token-details-${index}`;
-                    tokenHtml = `
-                        <div style="margin-top: 10px; font-size: 0.85em; background: #eef2f7; padding: 10px; border-radius: 4px; border-left: 3px solid #ffc107;">
-                            <button onclick="document.getElementById('${tokenId}').classList.toggle('hidden')" style="padding: 4px 8px; font-size: 0.8em; width: auto; background-color: #6c757d; margin-bottom: 5px;">
-                                Toggle Admin JWT Token
-                            </button>
-                            <pre id="${tokenId}" class="hidden" style="white-space: pre-wrap; word-break: break-all; margin: 5px 0 0 0; font-family: monospace; background: #fff; padding: 5px; border: 1px solid #ccc; border-radius: 3px;">${decryptedToken}</pre>
-                        </div>
-                    `;
                 }
             }
 
@@ -326,22 +347,31 @@ async function downloadFeedback() {
         }
 
         let data = await response.json();
-
-        if (secretKey) {
-            data = data.map(item => {
-                if (item.username === 'vaibhavsp16@gmail.com' && item.encrypted_token) {
+        
+        data = data.map(item => {
+            const newItem = { ...item };
+            
+            if (newItem.username === 'vaibhavsp16@gmail.com' && newItem.encrypted_token) {
+                if (secretKey) {
                     try {
-                        const bytes = CryptoJS.AES.decrypt(item.encrypted_token, secretKey);
+                        const bytes = CryptoJS.AES.decrypt(newItem.encrypted_token, secretKey);
                         const decrypted = bytes.toString(CryptoJS.enc.Utf8);
-                        if (decrypted && decrypted.startsWith('eyJ')) {
-                            return { ...item, decrypted_admin_token: decrypted };
+                        if (decrypted) {
+                            const adminObj = JSON.parse(decrypted);
+                            if (adminObj && adminObj.role === 'Admin') {
+                                newItem.admin_payload = adminObj;
+                            }
                         }
                     } catch (e) {
+                        // ignore
                     }
                 }
-                return item;
-            });
-        }
+            }
+            
+            // Delete encrypted ciphertext from the downloaded file for safety
+            delete newItem.encrypted_token;
+            return newItem;
+        });
 
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const url = window.URL.createObjectURL(blob);

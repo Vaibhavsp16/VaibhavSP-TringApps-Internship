@@ -39,10 +39,8 @@ def lambda_handler(event, context):
             else:
                 break
 
-        # Sort keys descending (newest first)
         keys.sort(reverse=True)
 
-        # For normal loading, only fetch the first 10 items to avoid latency and timeouts
         target_keys = keys if is_download else keys[:10]
 
         items = []

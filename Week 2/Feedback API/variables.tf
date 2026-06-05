@@ -19,5 +19,5 @@ variable "project_name" {
 variable "admin_secret_key" {
   description = "The secret key used to encrypt and decrypt the admin session token."
   type        = string
-  default     = "TringAppsAdminSecret2026"
+  default     = "SecretKey123"
 }
