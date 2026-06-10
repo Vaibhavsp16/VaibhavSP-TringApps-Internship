@@ -2,17 +2,25 @@ provider "aws" {
   region = var.aws_region
 }
 
-resource "aws_s3_bucket" "feedback_storage_bucket" {
-  bucket        = "${var.project_name}-storage-${var.environment}-${random_string.suffix.result}"
-  force_destroy = true
-}
+resource "aws_dynamodb_table" "feedback_table" {
+  name           = "${var.project_name}-table-${var.environment}"
+  billing_mode   = "PAY_PER_REQUEST"
+  hash_key       = "type"
+  range_key      = "timestamp"
 
-resource "aws_s3_bucket_public_access_block" "block_storage_public" {
-  bucket                  = aws_s3_bucket.feedback_storage_bucket.id
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
+  attribute {
+    name = "type"
+    type = "S"
+  }
+
+  attribute {
+    name = "timestamp"
+    type = "S"
+  }
+
+  tags = {
+    Environment = var.environment
+  }
 }
 
 resource "aws_cognito_user_pool" "student_pool" {
@@ -90,8 +98,8 @@ resource "aws_iam_role_policy_attachment" "lambda_logs" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-resource "aws_iam_role_policy" "lambda_s3_policy" {
-    name = "${var.project_name}-s3-policy-${var.environment}"
+resource "aws_iam_role_policy" "lambda_dynamodb_policy" {
+    name = "${var.project_name}-dynamodb-policy-${var.environment}"
     role = aws_iam_role.lambda_exec_role.id
     policy = jsonencode({
         Version = "2012-10-17"
@@ -99,13 +107,28 @@ resource "aws_iam_role_policy" "lambda_s3_policy" {
             {
                 Effect = "Allow"
                 Action = [
-                    "s3:PutObject",
-                    "s3:GetObject",
-                    "s3:ListBucket"
+                    "dynamodb:PutItem",
+                    "dynamodb:GetItem",
+                    "dynamodb:Scan",
+                    "dynamodb:Query",
+                    "dynamodb:UpdateItem",
+                    "dynamodb:DeleteItem"
                 ]
                 Resource = [
-                    aws_s3_bucket.feedback_storage_bucket.arn,
-                    "${aws_s3_bucket.feedback_storage_bucket.arn}/*"
+                    aws_dynamodb_table.feedback_table.arn,
+                    "${aws_dynamodb_table.feedback_table.arn}/*"
+                ]
+            },
+            {
+                Effect = "Allow"
+                Action = [
+                    "s3:PutObject",
+                    "s3:GetObject",
+                    "s3:DeleteObject"
+                ]
+                Resource = [
+                    aws_s3_bucket.attachments_bucket.arn,
+                    "${aws_s3_bucket.attachments_bucket.arn}/*"
                 ]
             }
         ]
@@ -134,7 +157,8 @@ resource "aws_lambda_function" "post_feedback_lambda" {
 
   environment {
     variables = {
-      BUCKET_NAME = aws_s3_bucket.feedback_storage_bucket.id
+      TABLE_NAME         = aws_dynamodb_table.feedback_table.name
+      ATTACHMENTS_BUCKET = aws_s3_bucket.attachments_bucket.id
     }
   }
 }
@@ -149,7 +173,8 @@ resource "aws_lambda_function" "get_feedback_lambda" {
 
   environment {
     variables = {
-      BUCKET_NAME = aws_s3_bucket.feedback_storage_bucket.id
+      TABLE_NAME         = aws_dynamodb_table.feedback_table.name
+      ATTACHMENTS_BUCKET = aws_s3_bucket.attachments_bucket.id
     }
   }
 }
@@ -210,6 +235,40 @@ resource "aws_api_gateway_integration" "post_integration" {
   uri                     = aws_lambda_function.post_feedback_lambda.invoke_arn
 }
 
+resource "aws_api_gateway_method" "put_method" {
+  rest_api_id   = aws_api_gateway_rest_api.feedback_api.id
+  resource_id   = aws_api_gateway_resource.feedback_route.id
+  http_method   = "PUT"
+  authorization = "COGNITO_USER_POOLS"
+  authorizer_id = aws_api_gateway_authorizer.cognito_auth.id
+}
+
+resource "aws_api_gateway_integration" "put_integration" {
+  rest_api_id             = aws_api_gateway_rest_api.feedback_api.id
+  resource_id             = aws_api_gateway_resource.feedback_route.id
+  http_method             = aws_api_gateway_method.put_method.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.post_feedback_lambda.invoke_arn
+}
+
+resource "aws_api_gateway_method" "delete_method" {
+  rest_api_id   = aws_api_gateway_rest_api.feedback_api.id
+  resource_id   = aws_api_gateway_resource.feedback_route.id
+  http_method   = "DELETE"
+  authorization = "COGNITO_USER_POOLS"
+  authorizer_id = aws_api_gateway_authorizer.cognito_auth.id
+}
+
+resource "aws_api_gateway_integration" "delete_integration" {
+  rest_api_id             = aws_api_gateway_rest_api.feedback_api.id
+  resource_id             = aws_api_gateway_resource.feedback_route.id
+  http_method             = aws_api_gateway_method.delete_method.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.post_feedback_lambda.invoke_arn
+}
+
 resource "aws_api_gateway_method" "get_method" {
   rest_api_id   = aws_api_gateway_rest_api.feedback_api.id
   resource_id   = aws_api_gateway_resource.feedback_route.id
@@ -228,6 +287,22 @@ resource "aws_api_gateway_integration" "get_integration" {
 
 resource "aws_lambda_permission" "apigw_allow_post" {
   statement_id  = "AllowPostExecutionFromAPIGatewayPost"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.post_feedback_lambda.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_api_gateway_rest_api.feedback_api.execution_arn}/*/*/feedback"
+}
+
+resource "aws_lambda_permission" "apigw_allow_put" {
+  statement_id  = "AllowPutExecutionFromAPIGatewayPut"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.post_feedback_lambda.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_api_gateway_rest_api.feedback_api.execution_arn}/*/*/feedback"
+}
+
+resource "aws_lambda_permission" "apigw_allow_delete" {
+  statement_id  = "AllowDeleteExecutionFromAPIGatewayDelete"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.post_feedback_lambda.function_name
   principal     = "apigateway.amazonaws.com"
@@ -319,6 +394,83 @@ resource "aws_api_gateway_integration_response" "download_cors_integration_respo
   depends_on = [aws_api_gateway_integration.download_cors_integration]
 }
 
+# Upload URL sub-route under /feedback
+resource "aws_api_gateway_resource" "upload_url_route" {
+  rest_api_id = aws_api_gateway_rest_api.feedback_api.id
+  parent_id   = aws_api_gateway_resource.feedback_route.id
+  path_part   = "upload-url"
+}
+
+resource "aws_api_gateway_method" "upload_url_post_method" {
+  rest_api_id   = aws_api_gateway_rest_api.feedback_api.id
+  resource_id   = aws_api_gateway_resource.upload_url_route.id
+  http_method   = "POST"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "upload_url_post_integration" {
+  rest_api_id             = aws_api_gateway_rest_api.feedback_api.id
+  resource_id             = aws_api_gateway_resource.upload_url_route.id
+  http_method             = aws_api_gateway_method.upload_url_post_method.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.post_feedback_lambda.invoke_arn
+}
+
+resource "aws_lambda_permission" "apigw_allow_upload_url" {
+  statement_id  = "AllowUploadUrlExecutionFromAPIGatewayPost"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.post_feedback_lambda.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_api_gateway_rest_api.feedback_api.execution_arn}/*/*/feedback/upload-url"
+}
+
+resource "aws_api_gateway_method" "upload_url_cors_options" {
+  rest_api_id   = aws_api_gateway_rest_api.feedback_api.id
+  resource_id   = aws_api_gateway_resource.upload_url_route.id
+  http_method   = "OPTIONS"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "upload_url_cors_integration" {
+  rest_api_id = aws_api_gateway_rest_api.feedback_api.id
+  resource_id = aws_api_gateway_resource.upload_url_route.id
+  http_method = aws_api_gateway_method.upload_url_cors_options.http_method
+  type        = "MOCK"
+
+  request_templates = {
+    "application/json" = "{\"statusCode\": 200}"
+  }
+}
+
+resource "aws_api_gateway_method_response" "upload_url_cors_response" {
+  rest_api_id = aws_api_gateway_rest_api.feedback_api.id
+  resource_id = aws_api_gateway_resource.upload_url_route.id
+  http_method = aws_api_gateway_method.upload_url_cors_options.http_method
+  status_code = "200"
+
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Headers" = true,
+    "method.response.header.Access-Control-Allow-Methods" = true,
+    "method.response.header.Access-Control-Allow-Origin"  = true
+  }
+}
+
+resource "aws_api_gateway_integration_response" "upload_url_cors_integration_response" {
+  rest_api_id = aws_api_gateway_rest_api.feedback_api.id
+  resource_id = aws_api_gateway_resource.upload_url_route.id
+  http_method = aws_api_gateway_method.upload_url_cors_options.http_method
+  status_code = aws_api_gateway_method_response.upload_url_cors_response.status_code
+
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Headers" = "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'",
+    "method.response.header.Access-Control-Allow-Methods" = "'POST,OPTIONS'",
+    "method.response.header.Access-Control-Allow-Origin"  = "'*'"
+  }
+
+  depends_on = [aws_api_gateway_integration.upload_url_cors_integration]
+}
+
 resource "aws_api_gateway_method" "cors_options" {
   rest_api_id   = aws_api_gateway_rest_api.feedback_api.id
   resource_id   = aws_api_gateway_resource.feedback_route.id
@@ -358,7 +510,7 @@ resource "aws_api_gateway_integration_response" "cors_integration_response" {
   
   response_parameters = {
     "method.response.header.Access-Control-Allow-Headers" = "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'",
-    "method.response.header.Access-Control-Allow-Methods" = "'GET,OPTIONS,POST'",
+    "method.response.header.Access-Control-Allow-Methods" = "'GET,OPTIONS,POST,PUT,DELETE'",
     "method.response.header.Access-Control-Allow-Origin"  = "'*'"
   }
 
@@ -376,7 +528,7 @@ resource "aws_api_gateway_gateway_response" "unauthorized_cors" {
   response_parameters = {
     "gatewayresponse.header.Access-Control-Allow-Origin"  = "'*'"
     "gatewayresponse.header.Access-Control-Allow-Headers" = "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
-    "gatewayresponse.header.Access-Control-Allow-Methods" = "'GET,OPTIONS,POST'"
+    "gatewayresponse.header.Access-Control-Allow-Methods" = "'GET,OPTIONS,POST,PUT,DELETE'"
   }
 }
 
@@ -391,7 +543,7 @@ resource "aws_api_gateway_gateway_response" "access_denied_cors" {
   response_parameters = {
     "gatewayresponse.header.Access-Control-Allow-Origin"  = "'*'"
     "gatewayresponse.header.Access-Control-Allow-Headers" = "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
-    "gatewayresponse.header.Access-Control-Allow-Methods" = "'GET,OPTIONS,POST'"
+    "gatewayresponse.header.Access-Control-Allow-Methods" = "'GET,OPTIONS,POST,PUT,DELETE'"
   }
 }
 
@@ -399,9 +551,13 @@ resource "aws_api_gateway_deployment" "api_deploy" {
   depends_on = [
     aws_api_gateway_integration.post_integration,
     aws_api_gateway_integration.get_integration,
+    aws_api_gateway_integration.put_integration,
+    aws_api_gateway_integration.delete_integration,
+    aws_api_gateway_integration.upload_url_post_integration,
     aws_api_gateway_integration_response.cors_integration_response,
     aws_api_gateway_integration.download_get_integration,
-    aws_api_gateway_integration_response.download_cors_integration_response
+    aws_api_gateway_integration_response.download_cors_integration_response,
+    aws_api_gateway_integration_response.upload_url_cors_integration_response
   ]
   rest_api_id = aws_api_gateway_rest_api.feedback_api.id
 
@@ -412,6 +568,14 @@ resource "aws_api_gateway_deployment" "api_deploy" {
       aws_api_gateway_integration.post_integration.id,
       aws_api_gateway_method.get_method.id,
       aws_api_gateway_integration.get_integration.id,
+      aws_api_gateway_method.put_method.id,
+      aws_api_gateway_integration.put_integration.id,
+      aws_api_gateway_method.delete_method.id,
+      aws_api_gateway_integration.delete_integration.id,
+      aws_api_gateway_resource.upload_url_route.id,
+      aws_api_gateway_method.upload_url_post_method.id,
+      aws_api_gateway_integration.upload_url_post_integration.id,
+      aws_api_gateway_integration_response.upload_url_cors_integration_response.id,
       aws_api_gateway_authorizer.cognito_auth.id,
       aws_api_gateway_integration_response.cors_integration_response.id,
       aws_api_gateway_resource.download_route.id,
@@ -556,4 +720,29 @@ window.API_CONFIG = {
   ADMIN_SECRET_HASH: "${sha256(var.admin_secret_key)}"
 };
 EOF
+}
+
+resource "aws_s3_bucket" "attachments_bucket" {
+  bucket        = "${var.project_name}-attachments-${var.environment}-${random_string.suffix.result}"
+  force_destroy = true
+}
+
+resource "aws_s3_bucket_public_access_block" "block_attachments_public" {
+  bucket                  = aws_s3_bucket.attachments_bucket.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_cors_configuration" "attachments_cors" {
+  bucket = aws_s3_bucket.attachments_bucket.id
+
+  cors_rule {
+    allowed_headers = ["*"]
+    allowed_methods = ["PUT", "GET"]
+    allowed_origins = ["*"]
+    expose_headers  = ["ETag"]
+    max_age_seconds = 3000
+  }
 }

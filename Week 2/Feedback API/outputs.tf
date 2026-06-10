@@ -1,6 +1,6 @@
-output "s3_storage_bucket_name" {
-  description = "The name of the S3 bucket created for feedback storage."
-  value = aws_s3_bucket.feedback_storage_bucket.id
+output "dynamo_table_name" {
+  description = "The name of the DynamoDB table created for feedback storage."
+  value = aws_dynamodb_table.feedback_table.name
 }
 
 output "cognito_user_pool_id" {

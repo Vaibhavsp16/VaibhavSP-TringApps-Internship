@@ -233,7 +233,22 @@ async function submitFeedback() {
     }
 
     try {
+        const fileInput = document.getElementById('attachment-file');
+        const files = fileInput.files;
+        const fileKeys = [];
+
+        if (files.length > 0) {
+            for (let i = 0; i < files.length; i++) {
+                const key = await uploadFileDirect(files[i]);
+                fileKeys.push(key);
+            }
+        }
+
         const payload = { feedback: feedbackText };
+        if (fileKeys.length > 0) {
+            payload.file_keys = fileKeys;
+        }
+
         if (loggedInEmail) {
             payload.username = loggedInEmail;
 
@@ -275,6 +290,8 @@ async function submitFeedback() {
         }
 
         document.getElementById('feedback-text').value = '';
+        fileInput.value = '';
+        document.getElementById('file-chosen-text').innerText = 'No files chosen';
         fetchFeedback();
 
     } catch (error) {
@@ -282,10 +299,72 @@ async function submitFeedback() {
     }
 }
 
+async function uploadFileDirect(file) {
+    const response = await fetch(`${API_URL}/upload-url`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            filename: file.name,
+            contentType: file.type
+        })
+    });
+    if (!response.ok) {
+        throw new Error("Failed to get S3 upload permission.");
+    }
+    const data = await response.json();
+    const { upload_url, file_key } = data;
+
+    const uploadResponse = await fetch(upload_url, {
+        method: 'PUT',
+        headers: {
+            'Content-Type': file.type
+        },
+        body: file
+    });
+    if (!uploadResponse.ok) {
+        throw new Error("Direct S3 file upload failed.");
+    }
+
+    return file_key;
+}
+
+function pickFile() {
+    return new Promise((resolve) => {
+        const tempInput = document.createElement('input');
+        tempInput.type = 'file';
+        tempInput.multiple = true;
+        tempInput.onchange = (e) => {
+            resolve(Array.from(e.target.files) || []);
+        };
+        window.addEventListener('focus', () => {
+            setTimeout(() => {
+                if (!tempInput.files.length) {
+                    resolve([]);
+                }
+            }, 300);
+        }, { once: true });
+        tempInput.click();
+    });
+}
+
 async function fetchFeedback() {
     try {
-        const response = await fetch(API_URL);
+        const headers = {};
+        if (idToken) {
+            headers['Authorization'] = idToken;
+        }
+        const response = await fetch(API_URL, {
+            headers: headers
+        });
         const feedbackData = await response.json();
+
+        // Save items to global map
+        window.feedbacksMap = {};
+        feedbackData.forEach(item => {
+            window.feedbacksMap[item.timestamp] = item;
+        });
 
         const listDiv = document.getElementById('feedback-list');
         listDiv.innerHTML = '';
@@ -328,16 +407,265 @@ async function fetchFeedback() {
                 }
             }
 
+            // Render multiple attachments
+            let attachmentsHtml = '';
+            if (item.attachments && item.attachments.length > 0) {
+                item.attachments.forEach(att => {
+                    const cleanUrl = att.url.split('?')[0];
+                    const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(cleanUrl);
+                    if (isImage) {
+                        attachmentsHtml += `
+                            <div style="margin-top: 10px;">
+                                <img src="${att.url}" alt="Attachment" style="max-width: 100%; max-height: 200px; border-radius: 4px; border: 1px solid #ccc; display: block; margin-top: 5px;">
+                            </div>
+                        `;
+                    } else {
+                        const filename = cleanUrl.substring(cleanUrl.lastIndexOf('/') + 1);
+                        const originalName = filename.includes('_') ? filename.substring(filename.indexOf('_') + 1) : filename;
+                        attachmentsHtml += `
+                            <div style="margin-top: 10px; font-size: 0.9em;">
+                                📎 <a href="${att.url}" target="_blank" style="color: #007bff; text-decoration: none; font-weight: bold;">Download ${originalName}</a>
+                            </div>
+                        `;
+                    }
+                });
+            }
+
+            let actionButtonsHtml = '';
+            const isOwner = loggedInEmail && loggedInEmail === item.username;
+            const isAdmin = loggedInEmail === 'vaibhavsp16@gmail.com';
+
+            if (isOwner) {
+                actionButtonsHtml = `
+                    <div style="margin-top: 10px; display: flex; gap: 8px;">
+                        <button onclick="openEditModal('${item.timestamp}')" style="padding: 6px 12px; font-size: 0.8em; width: auto; background-color: #007bff; color: white; border-radius: 4px; font-weight: bold; cursor: pointer; border: none;">
+                            Edit
+                        </button>
+                        <button onclick="deleteFeedback('${item.timestamp}')" style="padding: 6px 12px; font-size: 0.8em; width: auto; background-color: #dc3545; color: white; border-radius: 4px; font-weight: bold; cursor: pointer; border: none;">
+                            Delete
+                        </button>
+                    </div>
+                `;
+            } else if (isAdmin) {
+                actionButtonsHtml = `
+                    <div style="margin-top: 10px; display: flex; gap: 8px;">
+                        <button onclick="deleteFeedback('${item.timestamp}')" style="padding: 6px 12px; font-size: 0.8em; width: auto; background-color: #dc3545; color: white; border-radius: 4px; font-weight: bold; cursor: pointer; border: none;">
+                            Delete
+                        </button>
+                    </div>
+                `;
+            }
+
             listDiv.innerHTML += `
                 <div class="feedback-item">
                     <strong>${displayName}</strong> <span class="timestamp">(${date})</span>
                     <p style="margin: 5px 0 0 0;">${item.feedback}</p>
                     ${tokenHtml}
+                    ${attachmentsHtml}
+                    ${actionButtonsHtml}
                 </div>
             `;
         });
     } catch (error) {
         document.getElementById('feedback-list').innerText = "Failed to load feedback.";
+    }
+}
+
+function openEditModal(timestamp) {
+    const item = window.feedbacksMap[timestamp];
+    if (!item) return;
+
+    window.activeEditTimestamp = timestamp;
+    document.getElementById('edit-feedback-text').value = item.feedback;
+    
+    // Copy the attachments list
+    window.activeEditAttachments = item.attachments ? item.attachments.map(att => ({ ...att, markedDeleted: false })) : [];
+    
+    renderEditAttachments();
+    
+    // Clear files selector
+    document.getElementById('edit-attachment-file').value = '';
+    document.getElementById('edit-file-chosen-text').innerText = 'No files chosen';
+    
+    // Show Modal
+    document.getElementById('edit-modal').classList.remove('hidden');
+}
+
+function renderEditAttachments() {
+    const list = document.getElementById('edit-attachments-list');
+    list.innerHTML = '';
+    
+    if (window.activeEditAttachments.length === 0) {
+        list.innerHTML = '<span style="font-size: 0.9em; color: #888;">No attachments</span>';
+        return;
+    }
+    
+    window.activeEditAttachments.forEach((att, idx) => {
+        const cleanUrl = att.url.split('?')[0];
+        const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(cleanUrl);
+        const filename = cleanUrl.substring(cleanUrl.lastIndexOf('/') + 1);
+        const originalName = filename.includes('_') ? filename.substring(filename.indexOf('_') + 1) : filename;
+        
+        const itemDiv = document.createElement('div');
+        itemDiv.className = 'attachment-edit-item';
+        
+        if (att.markedDeleted) {
+            itemDiv.classList.add('marked-deleted');
+        }
+        
+        let previewHtml = '';
+        if (isImage) {
+            previewHtml = `
+                <div style="display: flex; align-items: center; gap: 10px; width: 80%;">
+                    <img src="${att.url}" alt="${originalName}" style="width: 45px; height: 45px; object-fit: cover; border-radius: 4px; border: 1px solid #ccc; flex-shrink: 0;">
+                    <span style="font-size: 0.9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${originalName}</span>
+                </div>
+            `;
+        } else {
+            previewHtml = `
+                <div style="display: flex; align-items: center; gap: 10px; width: 80%;">
+                    <span style="font-size: 1.2em; flex-shrink: 0;">📎</span>
+                    <span style="font-size: 0.9em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${originalName}</span>
+                </div>
+            `;
+        }
+        
+        itemDiv.innerHTML = `
+            ${previewHtml}
+            <button type="button" class="delete-attachment-btn" onclick="toggleEditAttachment(${idx})" style="background: none; border: none; cursor: pointer; padding: 0; display: flex; align-items: center; justify-content: center;">
+                ${att.markedDeleted ? '🔄' : '<img src="https://img.icons8.com/material-outlined/24/dc3545/trash.png" alt="Delete" style="width: 20px; height: 20px;">'}
+            </button>
+        `;
+        list.appendChild(itemDiv);
+    });
+}
+
+function toggleEditAttachment(idx) {
+    window.activeEditAttachments[idx].markedDeleted = !window.activeEditAttachments[idx].markedDeleted;
+    renderEditAttachments();
+}
+
+function closeEditModal() {
+    document.getElementById('edit-modal').classList.add('hidden');
+    document.getElementById('edit-attachment-file').value = '';
+    document.getElementById('edit-file-chosen-text').innerText = 'No files chosen';
+}
+
+async function saveEdit() {
+    const newText = document.getElementById('edit-feedback-text').value;
+    if (!newText.trim()) {
+        alert("Feedback cannot be empty.");
+        return;
+    }
+
+    try {
+        const fileInput = document.getElementById('edit-attachment-file');
+        const newFiles = fileInput.files;
+        const newKeys = [];
+
+        // Upload any newly selected files
+        if (newFiles.length > 0) {
+            for (let i = 0; i < newFiles.length; i++) {
+                const key = await uploadFileDirect(newFiles[i]);
+                newKeys.push(key);
+            }
+        }
+
+        // Get retained keys
+        const retainedKeys = window.activeEditAttachments
+            .filter(att => !att.markedDeleted)
+            .map(att => att.key);
+
+        const finalKeys = [...retainedKeys, ...newKeys];
+
+        const payload = {
+            timestamp: window.activeEditTimestamp,
+            feedback: newText,
+            file_keys: finalKeys
+        };
+
+        const headers = {
+            'Content-Type': 'application/json'
+        };
+        if (idToken) {
+            headers['Authorization'] = idToken;
+        }
+
+        const response = await fetch(API_URL, {
+            method: 'PUT',
+            headers: headers,
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error || `Update failed: ${response.statusText}`);
+        }
+
+        closeEditModal();
+        fetchFeedback();
+    } catch (error) {
+        alert(error.message);
+    }
+}
+
+function bindFileEvents() {
+    const mainFileInput = document.getElementById('attachment-file');
+    if (mainFileInput) {
+        mainFileInput.addEventListener('change', function() {
+            const fileCount = this.files.length;
+            const chosenSpan = document.getElementById('file-chosen-text');
+            if (fileCount === 0) {
+                chosenSpan.innerText = 'No files chosen';
+            } else if (fileCount === 1) {
+                chosenSpan.innerText = this.files[0].name;
+            } else {
+                chosenSpan.innerText = `${fileCount} files selected`;
+            }
+        });
+    }
+
+    const editFileInput = document.getElementById('edit-attachment-file');
+    if (editFileInput) {
+        editFileInput.addEventListener('change', function() {
+            const fileCount = this.files.length;
+            const chosenSpan = document.getElementById('edit-file-chosen-text');
+            if (fileCount === 0) {
+                chosenSpan.innerText = 'No files chosen';
+            } else if (fileCount === 1) {
+                chosenSpan.innerText = this.files[0].name;
+            } else {
+                chosenSpan.innerText = `${fileCount} files selected`;
+            }
+        });
+    }
+}
+
+bindFileEvents();
+
+async function deleteFeedback(timestamp) {
+    if (!confirm("Are you sure you want to delete this feedback?")) {
+        return;
+    }
+    try {
+        const headers = {
+            'Content-Type': 'application/json'
+        };
+        if (idToken) {
+            headers['Authorization'] = idToken;
+        }
+        const response = await fetch(API_URL, {
+            method: 'DELETE',
+            headers: headers,
+            body: JSON.stringify({ timestamp })
+        });
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error || `Delete failed: ${response.statusText}`);
+        }
+        fetchFeedback();
+    } catch (error) {
+        alert(error.message);
     }
 }
 
