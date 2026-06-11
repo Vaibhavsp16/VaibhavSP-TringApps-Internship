@@ -19,5 +19,5 @@ variable "project_name" {
 variable "admin_password" {
   description = "The password for the admin Cognito user."
   type        = string
-  default     = "AdminPassword123!"
+  default     = "Vaibhav@123"
 }
