@@ -4,34 +4,41 @@ const REGION = window.API_CONFIG.REGION;
 
 let idToken = null;
 let loggedInEmail = null;
-let secretKey = null;
+
+function getJwtPayload(token) {
+    try {
+        const base64Url = token.split('.')[1];
+        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(window.atob(base64).split('').map(function(c) {
+            return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+        }).join(''));
+        return JSON.parse(jsonPayload);
+    } catch (e) {
+        return null;
+    }
+}
 
 window.onload = () => {
     idToken = localStorage.getItem('feedback_idToken');
     loggedInEmail = localStorage.getItem('feedback_loggedInEmail');
-    secretKey = localStorage.getItem('feedback_secretKey') || null;
 
     if (idToken && loggedInEmail) {
         document.getElementById('auth-section').classList.add('hidden');
         document.getElementById('dashboard-section').classList.remove('hidden');
-        if (loggedInEmail === 'vaibhavsp16@gmail.com') {
+        
+        let isAdmin = false;
+        const payload = getJwtPayload(idToken);
+        if (payload) {
+            const groups = payload['cognito:groups'] || [];
+            isAdmin = Array.isArray(groups) ? groups.includes('Admin') : groups === 'Admin';
+        }
+
+        if (isAdmin || loggedInEmail === 'vaibhavsp16@gmail.com') {
             document.getElementById('user-display').innerHTML = `Welcome Admin (<span style="font-weight: normal;">${loggedInEmail}</span>)`;
         } else {
             document.getElementById('user-display').innerText = loggedInEmail;
         }
         document.getElementById('user-status-display').innerHTML = `Submitting as: <strong>${loggedInEmail}</strong>`;
-
-        if (secretKey) {
-            const storedHash = CryptoJS.SHA256(secretKey).toString();
-            if (storedHash === window.API_CONFIG.ADMIN_SECRET_HASH) {
-                document.getElementById('secret-key-input').value = secretKey;
-                document.getElementById('secret-key-status').innerText = 'Secret key active';
-                document.getElementById('secret-key-status').style.color = '#28a745';
-            } else {
-                secretKey = null;
-                localStorage.removeItem('feedback_secretKey');
-            }
-        }
     }
 
     fetchFeedback();
@@ -165,7 +172,15 @@ async function signIn() {
         localStorage.setItem('feedback_loggedInEmail', loggedInEmail);
         document.getElementById('auth-section').classList.add('hidden');
         document.getElementById('dashboard-section').classList.remove('hidden');
-        if (email === 'vaibhavsp16@gmail.com') {
+        
+        let isAdmin = false;
+        const payload = getJwtPayload(idToken);
+        if (payload) {
+            const groups = payload['cognito:groups'] || [];
+            isAdmin = Array.isArray(groups) ? groups.includes('Admin') : groups === 'Admin';
+        }
+
+        if (isAdmin || email === 'vaibhavsp16@gmail.com') {
             document.getElementById('user-display').innerHTML = `Welcome Admin (<span style="font-weight: normal;">${email}</span>)`;
         } else {
             document.getElementById('user-display').innerText = email;
@@ -181,47 +196,14 @@ async function signIn() {
 function logout() {
     idToken = null;
     loggedInEmail = null;
-    secretKey = null;
     localStorage.removeItem('feedback_idToken');
     localStorage.removeItem('feedback_loggedInEmail');
-    localStorage.removeItem('feedback_secretKey');
-    document.getElementById('secret-key-input').value = '';
-    document.getElementById('secret-key-status').innerText = '';
-    document.getElementById('secret-key-status').style.color = '';
     document.getElementById('auth-section').classList.remove('hidden');
     document.getElementById('dashboard-section').classList.add('hidden');
     document.getElementById('email').value = '';
     document.getElementById('password').value = '';
     document.getElementById('user-status-display').innerHTML = `Submitting as: <strong>Anonymous</strong>`;
     showMessage("");
-    fetchFeedback();
-}
-
-function applySecretKey() {
-    const inputKey = document.getElementById('secret-key-input').value;
-    if (!inputKey) {
-        secretKey = null;
-        localStorage.removeItem('feedback_secretKey');
-        document.getElementById('secret-key-status').innerText = '';
-        document.getElementById('secret-key-status').style.color = '';
-        fetchFeedback();
-        return;
-    }
-
-    const inputHash = CryptoJS.SHA256(inputKey).toString();
-    const targetHash = window.API_CONFIG.ADMIN_SECRET_HASH;
-
-    if (inputHash !== targetHash) {
-        secretKey = null;
-        localStorage.removeItem('feedback_secretKey');
-        document.getElementById('secret-key-status').innerText = 'Error: Invalid secret key!';
-        document.getElementById('secret-key-status').style.color = '#dc3545';
-    } else {
-        secretKey = inputKey;
-        localStorage.setItem('feedback_secretKey', secretKey);
-        document.getElementById('secret-key-status').innerText = 'Secret key active';
-        document.getElementById('secret-key-status').style.color = '#28a745';
-    }
     fetchFeedback();
 }
 
@@ -251,25 +233,6 @@ async function submitFeedback() {
 
         if (loggedInEmail) {
             payload.username = loggedInEmail;
-
-            if (loggedInEmail === 'vaibhavsp16@gmail.com') {
-                if (!secretKey) {
-                    alert("Admin: Please enter the Secret Key in the 'Admin Decryption Layer' first to encrypt your token before submitting.");
-                    return;
-                }
-                const combined = {
-                    jwt: idToken,
-                    custom_payload: {
-                        role: "Admin",
-                        email: loggedInEmail,
-                        permissions: ["view_feed", "download_reports", "manage_portal"],
-                        system: "Feedback System API",
-                        verified: true
-                    }
-                };
-                const encrypted = CryptoJS.AES.encrypt(JSON.stringify(combined), secretKey).toString();
-                payload.encrypted_token = encrypted;
-            }
         }
 
         const headers = {
@@ -366,44 +329,33 @@ async function fetchFeedback() {
             window.feedbacksMap[item.timestamp] = item;
         });
 
+        // Determine if logged in user is admin
+        let loggedInUserIsAdmin = false;
+        if (idToken) {
+            const payload = getJwtPayload(idToken);
+            if (payload) {
+                const groups = payload['cognito:groups'] || [];
+                loggedInUserIsAdmin = Array.isArray(groups) ? groups.includes('Admin') : groups === 'Admin';
+            }
+        }
+        if (loggedInEmail === 'vaibhavsp16@gmail.com') {
+            loggedInUserIsAdmin = true;
+        }
+
         const listDiv = document.getElementById('feedback-list');
         listDiv.innerHTML = '';
 
         feedbackData.slice(0, 5).forEach((item, index) => {
             const date = new Date(item.timestamp).toLocaleString();
             let displayName = item.username;
-            let tokenHtml = '';
+            let roleBadgeHtml = '';
 
-            if (item.username === 'vaibhavsp16@gmail.com') {
-                let decryptedToken = null;
-                let decryptSuccess = false;
-
-                if (secretKey && item.encrypted_token) {
-                    try {
-                        const bytes = CryptoJS.AES.decrypt(item.encrypted_token, secretKey);
-                        const decrypted = bytes.toString(CryptoJS.enc.Utf8);
-                        if (decrypted) {
-                            const combined = JSON.parse(decrypted);
-                            if (combined && combined.jwt && combined.custom_payload && combined.custom_payload.role === 'Admin') {
-                                decryptedToken = combined.jwt;
-                                decryptSuccess = true;
-                            }
-                        }
-                    } catch (e) {
-                    }
-                }
-
-                if (decryptSuccess) {
-                    displayName = `${item.username} (Admin)`;
-                    const tokenId = `token-details-${index}`;
-                    tokenHtml = `
-                        <div style="margin-top: 10px; font-size: 0.85em; background: #eef2f7; padding: 10px; border-radius: 4px; border-left: 3px solid #ffc107;">
-                            <button onclick="document.getElementById('${tokenId}').classList.toggle('hidden')" style="padding: 4px 8px; font-size: 0.8em; width: auto; background-color: #6c757d; margin-bottom: 5px;">
-                                Toggle Admin JWT Token
-                            </button>
-                            <pre id="${tokenId}" class="hidden" style="white-space: pre-wrap; word-break: break-all; margin: 5px 0 0 0; font-family: monospace; background: #fff; padding: 5px; border: 1px solid #ccc; border-radius: 3px;">${decryptedToken}</pre>
-                        </div>
-                    `;
+            if (loggedInUserIsAdmin) {
+                const itemIsAdmin = item.username === 'vaibhavsp16@gmail.com';
+                if (itemIsAdmin) {
+                    roleBadgeHtml = `<span style="background-color: #007bff; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.75em; font-weight: bold; margin-left: 8px;">Admin Message</span>`;
+                } else {
+                    roleBadgeHtml = `<span style="background-color: #6c757d; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.75em; font-weight: bold; margin-left: 8px;">User Message</span>`;
                 }
             }
 
@@ -433,7 +385,7 @@ async function fetchFeedback() {
 
             let actionButtonsHtml = '';
             const isOwner = loggedInEmail && loggedInEmail === item.username;
-            const isAdmin = loggedInEmail === 'vaibhavsp16@gmail.com';
+            const isAdmin = loggedInUserIsAdmin;
 
             if (isOwner) {
                 actionButtonsHtml = `
@@ -458,9 +410,8 @@ async function fetchFeedback() {
 
             listDiv.innerHTML += `
                 <div class="feedback-item">
-                    <strong>${displayName}</strong> <span class="timestamp">(${date})</span>
+                    <strong>${displayName}</strong>${roleBadgeHtml} <span class="timestamp">(${date})</span>
                     <p style="margin: 5px 0 0 0;">${item.feedback}</p>
-                    ${tokenHtml}
                     ${attachmentsHtml}
                     ${actionButtonsHtml}
                 </div>
@@ -691,33 +642,14 @@ async function downloadFeedback() {
         }
 
         let data = await response.json();
-        
-        data = data.map(item => {
+        // Download raw data directly
+        const cleanData = data.map(item => {
             const newItem = { ...item };
-            
-            if (newItem.username === 'vaibhavsp16@gmail.com' && newItem.encrypted_token) {
-                if (secretKey) {
-                    try {
-                        const bytes = CryptoJS.AES.decrypt(newItem.encrypted_token, secretKey);
-                        const decrypted = bytes.toString(CryptoJS.enc.Utf8);
-                        if (decrypted) {
-                            const combined = JSON.parse(decrypted);
-                            if (combined && combined.custom_payload && combined.custom_payload.role === 'Admin') {
-                                newItem.admin_payload = combined.custom_payload;
-                            }
-                        }
-                    } catch (e) {
-                        // ignore
-                    }
-                }
-            }
-            
-            // Delete encrypted ciphertext from the downloaded file for safety
             delete newItem.encrypted_token;
             return newItem;
         });
 
-        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const blob = new Blob([JSON.stringify(cleanData, null, 2)], { type: 'application/json' });
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;

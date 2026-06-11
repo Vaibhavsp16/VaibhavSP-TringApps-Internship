@@ -16,8 +16,8 @@ variable "project_name" {
   default     = "student-feedback"
 }
 
-variable "admin_secret_key" {
-  description = "The secret key used to encrypt and decrypt the admin session token."
+variable "admin_password" {
+  description = "The password for the admin Cognito user."
   type        = string
-  default     = "SecretKey123"
+  default     = "AdminPassword123!"
 }

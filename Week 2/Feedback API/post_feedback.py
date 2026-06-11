@@ -81,7 +81,8 @@ def lambda_handler(event, context):
                 break
 
         logged_in_email = claims.get('email')
-        is_admin = claims.get('custom:role') == 'Admin' or logged_in_email == 'vaibhavsp16@gmail.com'
+        groups = claims.get('cognito:groups', '')
+        is_admin = 'Admin' in groups or groups == 'Admin' or claims.get('custom:role') == 'Admin' or logged_in_email == 'vaibhavsp16@gmail.com'
 
         if auth_header and not logged_in_email:
             token = auth_header[7:] if auth_header.lower().startswith('bearer ') else auth_header
@@ -89,6 +90,13 @@ def lambda_handler(event, context):
             if payload:
                 logged_in_email = payload.get('email')
                 role = payload.get('custom:role')
+                payload_groups = payload.get('cognito:groups', [])
+                if isinstance(payload_groups, str):
+                    if 'Admin' in payload_groups:
+                        is_admin = True
+                elif isinstance(payload_groups, list):
+                    if 'Admin' in payload_groups:
+                        is_admin = True
                 if role == 'Admin' or logged_in_email == 'vaibhavsp16@gmail.com':
                     is_admin = True
 

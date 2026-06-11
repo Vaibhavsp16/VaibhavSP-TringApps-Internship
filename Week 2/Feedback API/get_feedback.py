@@ -46,6 +46,13 @@ def lambda_handler(event, context):
             if payload:
                 logged_in_email = payload.get('email')
                 role = payload.get('custom:role')
+                groups = payload.get('cognito:groups', [])
+                if isinstance(groups, str):
+                    if 'Admin' in groups:
+                        is_admin = True
+                elif isinstance(groups, list):
+                    if 'Admin' in groups:
+                        is_admin = True
                 if role == 'Admin' or logged_in_email == 'vaibhavsp16@gmail.com':
                     is_admin = True
 

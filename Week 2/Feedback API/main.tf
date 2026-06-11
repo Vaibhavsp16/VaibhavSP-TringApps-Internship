@@ -716,10 +716,36 @@ resource "aws_s3_object" "config_js" {
 window.API_CONFIG = {
   API_URL: "${aws_api_gateway_stage.api_stage.invoke_url}/feedback",
   CLIENT_ID: "${aws_cognito_user_pool_client.student_client.id}",
-  REGION: "${var.aws_region}",
-  ADMIN_SECRET_HASH: "${sha256(var.admin_secret_key)}"
+  REGION: "${var.aws_region}"
 };
 EOF
+}
+
+resource "aws_cognito_user_group" "admin_group" {
+  name         = "Admin"
+  user_pool_id = aws_cognito_user_pool.student_pool.id
+  description  = "Admin Group"
+}
+
+resource "aws_cognito_user" "admin_user" {
+  user_pool_id = aws_cognito_user_pool.student_pool.id
+  username     = "vaibhavsp16@gmail.com"
+  message_action = "SUPPRESS"
+
+  attributes = {
+    email          = "vaibhavsp16@gmail.com"
+    email_verified = "true"
+  }
+
+  provisioner "local-exec" {
+    command = "aws cognito-idp admin-set-user-password --user-pool-id ${aws_cognito_user_pool.student_pool.id} --username ${self.username} --password ${var.admin_password} --permanent"
+  }
+}
+
+resource "aws_cognito_user_in_group" "admin_membership" {
+  user_pool_id = aws_cognito_user_pool.student_pool.id
+  username     = aws_cognito_user.admin_user.username
+  group_name   = aws_cognito_user_group.admin_group.name
 }
 
 resource "aws_s3_bucket" "attachments_bucket" {
