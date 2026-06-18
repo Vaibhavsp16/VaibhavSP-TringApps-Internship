@@ -165,10 +165,13 @@
         <textarea id="feedback-text" rows="4" placeholder="Write your feedback here..."></textarea>
         <div style="margin: 10px 0; display: flex; align-items: center; gap: 10px;">
             <span style="font-weight: bold; font-size: 0.9em; color: #555;">Attach Files/Images:</span>
-            <button type="button" onclick="event.stopPropagation(); document.getElementById('attachment-file').click()" style="background-color: #6c757d; font-size: 0.85em; padding: 6px 12px; width: auto; margin: 0; white-space: nowrap;">
+            <button type="button" onclick="event.stopPropagation(); document.getElementById('attachment-file').click()"
+                style="background-color: #6c757d; font-size: 0.85em; padding: 6px 12px; width: auto; margin: 0; white-space: nowrap;">
                 Choose Files
             </button>
-            <span id="file-chosen-text" style="font-size: 0.85em; color: #666; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">No files chosen</span>
+            <span id="file-chosen-text"
+                style="font-size: 0.85em; color: #666; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">No
+                files chosen</span>
             <input type="file" id="attachment-file" multiple style="display: none;">
         </div>
         <button onclick="submitFeedback()">Submit Feedback</button>
@@ -180,23 +183,29 @@
         <div id="feedback-list">Loading feedback...</div>
     </div>
 
-    <!-- Edit Feedback Modal -->
     <div id="edit-modal" class="modal-overlay hidden">
         <div class="modal-content">
             <h2 style="margin-bottom: 15px;">Edit Feedback</h2>
             <textarea id="edit-feedback-text" rows="4" style="margin-bottom: 15px;"></textarea>
-            
+
             <div style="margin-bottom: 15px;">
-                <span style="font-weight: bold; font-size: 0.9em; display: block; margin-bottom: 8px; color: #555;">Current Attachments:</span>
-                <div id="edit-attachments-list" style="display: flex; flex-direction: column; gap: 8px; max-height: 150px; overflow-y: auto;"></div>
+                <span
+                    style="font-weight: bold; font-size: 0.9em; display: block; margin-bottom: 8px; color: #555;">Current
+                    Attachments:</span>
+                <div id="edit-attachments-list"
+                    style="display: flex; flex-direction: column; gap: 8px; max-height: 150px; overflow-y: auto;"></div>
             </div>
 
             <div style="margin-bottom: 15px; display: flex; align-items: center; gap: 10px;">
                 <span style="font-weight: bold; font-size: 0.9em; color: #555;">Add Attachments:</span>
-                <button type="button" onclick="event.stopPropagation(); document.getElementById('edit-attachment-file').click()" style="background-color: #6c757d; font-size: 0.8em; padding: 5px 10px; width: auto; margin: 0; white-space: nowrap;">
+                <button type="button"
+                    onclick="event.stopPropagation(); document.getElementById('edit-attachment-file').click()"
+                    style="background-color: #6c757d; font-size: 0.8em; padding: 5px 10px; width: auto; margin: 0; white-space: nowrap;">
                     Choose Files
                 </button>
-                <span id="edit-file-chosen-text" style="font-size: 0.8em; color: #666; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">No files chosen</span>
+                <span id="edit-file-chosen-text"
+                    style="font-size: 0.8em; color: #666; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">No
+                    files chosen</span>
                 <input type="file" id="edit-attachment-file" multiple style="display: none;">
             </div>
 

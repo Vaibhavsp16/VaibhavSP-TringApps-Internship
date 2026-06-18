@@ -8,6 +8,8 @@
 aws.cmd
 terraform.exe
 terraform_*.zip
+*.zip
+
 
 # Terraform generated files
 **/.terraform/
