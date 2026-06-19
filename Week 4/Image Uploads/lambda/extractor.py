@@ -4,7 +4,6 @@ import boto3
 import urllib.parse
 import math
 
-# Initialize clients
 s3 = boto3.client('s3')
 rekognition = boto3.client('rekognition')
 sqs = boto3.client('sqs')
@@ -16,7 +15,6 @@ def handler(event, context):
     
     for record in event['Records']:
         bucket = record['s3']['bucket']['name']
-        # S3 event keys are URL-encoded; we must decode them to query boto3 correctly
         key = urllib.parse.unquote_plus(record['s3']['object']['key'])
         
         try:
@@ -27,7 +25,6 @@ def handler(event, context):
             content_length = s3_metadata.get('ContentLength', 0)
             last_modified = s3_metadata.get('LastModified')
             
-            # format size
             if content_length == 0:
                 file_size_str = "0 Bytes"
             else:
@@ -39,7 +36,6 @@ def handler(event, context):
                 except Exception:
                     file_size_str = f"{content_length} Bytes"
             
-            # format last modified timestamp
             if last_modified:
                 upload_time_str = last_modified.strftime('%m/%d/%Y, %I:%M:%S %p UTC')
             else:

@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AuraVision - Image AI Processing</title>
+    <title>Image Processing System</title>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -166,12 +166,12 @@
 
 <body>
 
-    <!-- Auth Container -->
+    
     <div class="container" id="authCard">
         <h2 id="authTitle">Image Processing System</h2>
         <div class="error-message" id="authError" style="display:none;"></div>
         
-        <!-- Standard Login / Signup inputs -->
+        
         <div id="credentials-fields">
             <div class="form-group">
                 <label>Uploader Email</label>
@@ -183,26 +183,25 @@
             </div>
         </div>
 
-        <!-- Verification code field (hidden by default) -->
+        
         <div id="verification-field" class="form-group hidden">
             <label>Verification Code (Sent to your Email)</label>
             <input type="text" id="verificationInput" placeholder="Enter 6-digit verification code">
         </div>
 
-        <!-- Buttons -->
+        
         <div id="action-buttons">
             <button id="loginBtn" onclick="login()">Log In & Initialize</button>
             <button id="registerBtn" class="btn-secondary hidden" onclick="signUp()">Create Account</button>
             <button id="confirmBtn" class="hidden" onclick="confirmSignUp()">Confirm Verification Code</button>
         </div>
 
-        <!-- Toggle link -->
+        
         <div style="margin-top: 20px; text-align: center; font-size: 0.9em;">
             <a href="#" id="toggleLink" onclick="toggleAuthMode(event)" style="color: #007bff; text-decoration: none; font-weight: bold;">Don't have an account? Sign Up</a>
         </div>
     </div>
 
-    <!-- Dashboard Container -->
     <div class="container hidden" id="dashboardCard">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
             <h2 style="margin: 0;">Image Processing System</h2>
@@ -215,7 +214,6 @@
             <input type="file" id="fileInput" accept="image/jpeg,image/png" class="hidden" onchange="handleFileSelect(event)">
         </div>
 
-        <!-- Current Active Upload Card -->
         <div id="activeUploadCard" class="hidden" style="border: 1px solid #ccc; border-radius: 6px; padding: 15px; background: #fafafa; display: flex; gap: 15px; align-items: center; margin-bottom: 20px; text-align: left;">
             <img id="activePreview" src="" alt="Preview" style="width: 60px; height: 60px; border-radius: 4px; object-fit: cover; border: 1px solid #ccc; background: #fff;">
             <div style="flex-grow: 1; min-width: 0; font-size: 0.9em; color: #555;">
@@ -225,7 +223,6 @@
             </div>
         </div>
 
-        <!-- JWT token display (hidden but preserved internally) -->
         <div class="form-group hidden">
             <label>JWT ID Token</label>
             <div id="tokenDisplay" class="token-box">...</div>
@@ -254,7 +251,6 @@
             </div>
         </div>
 
-        <!-- Recent Uploads History Section -->
         <div style="margin-top: 25px; text-align: left;">
             <h3 style="font-size: 1.1em; color: #333; margin-top: 25px; margin-bottom: 12px; border-bottom: 1px solid #eee; padding-bottom: 6px;">Recent Uploads History</h3>
             <div id="historyList" style="display: flex; flex-direction: column; gap: 10px;">
@@ -263,7 +259,6 @@
         </div>
     </div>
 
-    <!-- Details View Modal -->
     <div id="detailsModal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.5); display: flex; justify-content: center; align-items: center; z-index: 1000; opacity: 0; pointer-events: none; transition: opacity 0.3s ease;" onclick="closeModal()">
         <div style="background: white; border-radius: 8px; padding: 25px; width: 90%; max-width: 450px; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.2); position: relative;" onclick="event.stopPropagation()">
             <button onclick="closeModal()" style="position: absolute; top: 15px; right: 15px; background: transparent; border: none; color: #888; font-size: 1.5em; cursor: pointer;">&times;</button>
@@ -364,9 +359,8 @@
                     idToken = data.AuthenticationResult.IdToken;
                     userEmail = email;
 
-                    // Persist credentials
-                    localStorage.setItem("auravision_token", idToken);
-                    localStorage.setItem("auravision_email", userEmail);
+                    localStorage.setItem("image_processing_token", idToken);
+                    localStorage.setItem("image_processing_email", userEmail);
 
                     document.getElementById("authCard").classList.add("hidden");
                     document.getElementById("dashboardCard").classList.remove("hidden");
@@ -416,7 +410,6 @@
                     authError.innerText = "Sign up successful! Please check your email for a verification code.";
                     authError.style.display = "block";
 
-                    // Transition to verification mode
                     document.getElementById("credentials-fields").classList.add("hidden");
                     document.getElementById("verification-field").classList.remove("hidden");
                     document.getElementById("registerBtn").classList.add("hidden");
@@ -459,7 +452,6 @@
                     authError.innerText = "Account confirmed! You can now sign in.";
                     authError.style.display = "block";
 
-                    // Transition back to login mode
                     isSignUpMode = true;
                     toggleAuthMode();
                     document.getElementById("emailInput").value = email;
@@ -477,14 +469,13 @@
         function logout() {
             idToken = "";
             userEmail = "";
-            localStorage.removeItem("auravision_token");
-            localStorage.removeItem("auravision_email");
+            localStorage.removeItem("image_processing_token");
+            localStorage.removeItem("image_processing_email");
             document.getElementById("passwordInput").value = "";
             document.getElementById("activeUploadCard").classList.add("hidden");
             document.getElementById("authCard").classList.remove("hidden");
             document.getElementById("dashboardCard").classList.add("hidden");
             
-            // Reset pipeline steps
             const stepIds = ["step1", "step2", "step3", "step4", "step5"];
             stepIds.forEach(id => {
                 const el = document.getElementById(id);
@@ -534,7 +525,6 @@
             const activeMeta = document.getElementById("activeMeta");
             const activeStatus = document.getElementById("activeStatus");
 
-            // Setup preview
             const localUrl = URL.createObjectURL(file);
             activePreview.src = localUrl;
             activeFileName.innerText = file.name;
@@ -586,7 +576,6 @@
                 updateStep("step4", "active");
                 activeStatus.innerText = "Waiting in SQS Queue...";
 
-                // Save to history immediately as "In Queue"
                 compressAndSaveHistoryItem(file, file.name, fileSizeStr, timestampStr, "In Queue");
 
                 setTimeout(() => {
@@ -597,7 +586,6 @@
                     activeStatus.style.color = "#155724";
                     activeStatus.style.background = "#d4edda";
 
-                    // Update history item to "Processed"
                     updateHistoryItemStatus(file.name, "Processed & Emailed");
                 }, 5000);
 
@@ -611,10 +599,8 @@
             }
         }
 
-        // --- Local History Management ---
 
-        // --- IndexedDB Storage for Full Quality Images ---
-        const DB_NAME = "AuraVisionDB";
+        const DB_NAME = "ImageProcessingDB";
         const STORE_NAME = "images";
 
         function openDatabase() {
@@ -663,7 +649,7 @@
         }
 
         function getHistoryKey() {
-            return `auravision_history_$${userEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            return `image_processing_history_$${userEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
         }
 
         function loadHistory() {
@@ -692,7 +678,6 @@
                 const fullBase64 = e.target.result;
                 const itemId = Date.now();
                 
-                // Save full resolution image to IndexedDB
                 await saveFullImage(itemId, fullBase64);
 
                 const img = new Image();
@@ -791,14 +776,12 @@
             renderHistoryList(history);
         }
 
-        // --- Modal Functionality ---
 
         async function viewHistoryItem(itemId) {
             const history = loadHistory();
             const item = history.find(i => i.id === itemId);
             if (!item) return;
 
-            // Load small thumbnail as immediate placeholder
             document.getElementById("modalPreview").src = item.thumbnailData || item.imageData || "";
             document.getElementById("modalFileName").innerText = item.fileName;
             document.getElementById("modalFileSize").innerText = item.fileSize;
@@ -808,7 +791,6 @@
             document.getElementById("detailsModal").style.opacity = "1";
             document.getElementById("detailsModal").style.pointerEvents = "auto";
 
-            // Asynchronously load the full resolution image from IndexedDB
             const fullImage = await getFullImage(itemId);
             if (fullImage) {
                 document.getElementById("modalPreview").src = fullImage;
@@ -821,8 +803,8 @@
         }
 
         window.addEventListener("DOMContentLoaded", () => {
-            const storedToken = localStorage.getItem("auravision_token");
-            const storedEmail = localStorage.getItem("auravision_email");
+            const storedToken = localStorage.getItem("image_processing_token");
+            const storedEmail = localStorage.getItem("image_processing_email");
             if (storedToken && storedEmail) {
                 idToken = storedToken;
                 userEmail = storedEmail;

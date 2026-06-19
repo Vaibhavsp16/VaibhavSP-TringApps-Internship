@@ -1,6 +1,6 @@
-# AuraVision: AI-Powered Image Processing Pipeline & Dashboard
+# Image Processing System: AI-Powered Image Processing Pipeline & Dashboard
 
-AuraVision is a secure, serverless image processing application built on AWS that leverages artificial intelligence to analyze uploaded images, archive metadata sidecars, and notify users via automated emails. 
+This is a secure, serverless image processing application built on AWS that leverages artificial intelligence to analyze uploaded images, archive metadata sidecars, and notify users via automated emails. 
 
 ---
 
@@ -27,7 +27,7 @@ graph TD
 - **Static Hosting**: Served globally via an **AWS CloudFront CDN** backed by a private S3 hosting bucket with Origin Access Control (OAC).
 - **Authentication**: Integrates directly with an **AWS Cognito User Pool** utilizing custom attributes (`custom:role` set to "Intern").
 - **Session Persistence**: Stores Cognito tokens in `localStorage` upon login, ensuring sessions persist across page refreshes.
-- **Client Storage (IndexedDB)**: To keep page load speeds fast without hitting browser local storage limit quotas, high-resolution original images are stored in a client-side **IndexedDB** database (`AuraVisionDB`). A small 80px canvas thumbnail is kept in `localStorage` for rendering the recent uploads list.
+- **Client Storage (IndexedDB)**: To keep page load speeds fast without hitting browser local storage limit quotas, high-resolution original images are stored in a client-side **IndexedDB** database (`ImageProcessingDB`). A small 80px canvas thumbnail is kept in `localStorage` for rendering the recent uploads list.
 - **Details Modal**: Clicking **View** on a history item pulls the original image from IndexedDB and displays the full-quality preview modal alongside file metadata (name, size, timestamp).
 
 ### 2. AWS Lambda Pipeline Backend
