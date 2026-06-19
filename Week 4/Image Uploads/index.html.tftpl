@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -162,6 +163,7 @@
         }
     </style>
 </head>
+
 <body>
 
     <!-- Auth Container -->
@@ -202,7 +204,10 @@
 
     <!-- Dashboard Container -->
     <div class="container hidden" id="dashboardCard">
-        <h2>Image Processing System</h2>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+            <h2 style="margin: 0;">Image Processing System</h2>
+            <button onclick="logout()" style="width: auto; margin: 0; padding: 6px 12px; font-size: 0.85em; font-weight: bold; background-color: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">Logout</button>
+        </div>
 
         <div class="upload-zone" id="dropzone" onclick="document.getElementById('fileInput').click()">
             <div style="font-size: 2.5em; margin-bottom: 10px;">📸</div>
@@ -210,7 +215,18 @@
             <input type="file" id="fileInput" accept="image/jpeg,image/png" class="hidden" onchange="handleFileSelect(event)">
         </div>
 
-        <div class="form-group">
+        <!-- Current Active Upload Card -->
+        <div id="activeUploadCard" class="hidden" style="border: 1px solid #ccc; border-radius: 6px; padding: 15px; background: #fafafa; display: flex; gap: 15px; align-items: center; margin-bottom: 20px; text-align: left;">
+            <img id="activePreview" src="" alt="Preview" style="width: 60px; height: 60px; border-radius: 4px; object-fit: cover; border: 1px solid #ccc; background: #fff;">
+            <div style="flex-grow: 1; min-width: 0; font-size: 0.9em; color: #555;">
+                <div id="activeFileName" style="font-weight: bold; color: #333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">...</div>
+                <div id="activeMeta" style="color: #666; font-size: 0.85em; margin: 3px 0;">Size: ... | Created: ...</div>
+                <div id="activeStatus" style="display: inline-block; font-size: 0.8em; font-weight: bold; color: #007bff; padding: 3px 6px; background: #e6f2ff; border-radius: 4px; border: 1px solid #b3d7ff;">Uploading...</div>
+            </div>
+        </div>
+
+        <!-- JWT token display (hidden but preserved internally) -->
+        <div class="form-group hidden">
             <label>JWT ID Token</label>
             <div id="tokenDisplay" class="token-box">...</div>
         </div>
@@ -236,6 +252,41 @@
                 <span class="step-bullet"></span>
                 <span>Success! Check your email for AI analysis.</span>
             </div>
+        </div>
+
+        <!-- Recent Uploads History Section -->
+        <div style="margin-top: 25px; text-align: left;">
+            <h3 style="font-size: 1.1em; color: #333; margin-top: 25px; margin-bottom: 12px; border-bottom: 1px solid #eee; padding-bottom: 6px;">Recent Uploads History</h3>
+            <div id="historyList" style="display: flex; flex-direction: column; gap: 10px;">
+                <div class="no-history" style="text-align: center; color: #888; font-size: 0.9em; padding: 15px 0;">No uploads history yet.</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Details View Modal -->
+    <div id="detailsModal" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.5); display: flex; justify-content: center; align-items: center; z-index: 1000; opacity: 0; pointer-events: none; transition: opacity 0.3s ease;" onclick="closeModal()">
+        <div style="background: white; border-radius: 8px; padding: 25px; width: 90%; max-width: 450px; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.2); position: relative;" onclick="event.stopPropagation()">
+            <button onclick="closeModal()" style="position: absolute; top: 15px; right: 15px; background: transparent; border: none; color: #888; font-size: 1.5em; cursor: pointer;">&times;</button>
+            <h3 style="font-size: 1.2em; color: #333; margin-top: 0; margin-bottom: 15px; border-bottom: 1px solid #eee; padding-bottom: 8px; text-align: left;">Upload Details</h3>
+            <img id="modalPreview" src="" alt="Preview" style="width: 100%; max-height: 200px; border-radius: 4px; object-fit: contain; margin-bottom: 15px; border: 1px solid #ddd; background: #fafafa;">
+            <table style="text-align: left; width: 100%; border-collapse: collapse;">
+                <tr style="border-bottom: 1px solid #eee;">
+                    <td style="padding: 8px 0; font-size: 0.9em; color: #666; font-weight: bold; width: 35%;">File Name</td>
+                    <td id="modalFileName" style="padding: 8px 0; font-size: 0.9em; color: #333; word-break: break-all;">...</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #eee;">
+                    <td style="padding: 8px 0; font-size: 0.9em; color: #666; font-weight: bold;">File Size</td>
+                    <td id="modalFileSize" style="padding: 8px 0; font-size: 0.9em; color: #333; word-break: break-all;">...</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #eee;">
+                    <td style="padding: 8px 0; font-size: 0.9em; color: #666; font-weight: bold;">Upload Time</td>
+                    <td id="modalUploadTime" style="padding: 8px 0; font-size: 0.9em; color: #333; word-break: break-all;">...</td>
+                </tr>
+                <tr>
+                    <td style="padding: 8px 0; font-size: 0.9em; color: #666; font-weight: bold;">Status</td>
+                    <td id="modalStatus" style="padding: 8px 0; font-size: 0.9em; color: #333; word-break: break-all;">...</td>
+                </tr>
+            </table>
         </div>
     </div>
 
@@ -313,11 +364,16 @@
                     idToken = data.AuthenticationResult.IdToken;
                     userEmail = email;
 
+                    // Persist credentials
+                    localStorage.setItem("auravision_token", idToken);
+                    localStorage.setItem("auravision_email", userEmail);
+
                     document.getElementById("authCard").classList.add("hidden");
                     document.getElementById("dashboardCard").classList.remove("hidden");
                     document.getElementById("tokenDisplay").innerText = idToken;
 
                     updateStep("step1", "completed");
+                    loadAndRenderHistory();
                 } else {
                     throw new Error(data.message || "Invalid credentials.");
                 }
@@ -418,10 +474,32 @@
             }
         }
 
+        function logout() {
+            idToken = "";
+            userEmail = "";
+            localStorage.removeItem("auravision_token");
+            localStorage.removeItem("auravision_email");
+            document.getElementById("passwordInput").value = "";
+            document.getElementById("activeUploadCard").classList.add("hidden");
+            document.getElementById("authCard").classList.remove("hidden");
+            document.getElementById("dashboardCard").classList.add("hidden");
+            
+            // Reset pipeline steps
+            const stepIds = ["step1", "step2", "step3", "step4", "step5"];
+            stepIds.forEach(id => {
+                const el = document.getElementById(id);
+                el.className = "step";
+                const bullet = el.querySelector(".step-bullet");
+                if (bullet) bullet.style.background = "";
+            });
+        }
+
         function updateStep(id, status) {
             const el = document.getElementById(id);
-            el.className = "step";
-            if (status) el.classList.add(status);
+            if (el) {
+                el.className = "step";
+                if (status) el.classList.add(status);
+            }
         }
 
         const dropzone = document.getElementById("dropzone");
@@ -441,13 +519,38 @@
             }
         }
 
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
         async function processUpload(file) {
+            const activeCard = document.getElementById("activeUploadCard");
+            const activePreview = document.getElementById("activePreview");
+            const activeFileName = document.getElementById("activeFileName");
+            const activeMeta = document.getElementById("activeMeta");
+            const activeStatus = document.getElementById("activeStatus");
+
+            // Setup preview
+            const localUrl = URL.createObjectURL(file);
+            activePreview.src = localUrl;
+            activeFileName.innerText = file.name;
+            const fileSizeStr = formatBytes(file.size);
+            const timestampStr = new Date().toLocaleString();
+            activeMeta.innerText = `Size: $${fileSizeStr} | Created: $${timestampStr}`;
+            activeStatus.innerText = "Initializing Upload...";
+            activeCard.classList.remove("hidden");
+
             updateStep("step2", "active");
             updateStep("step3", "");
             updateStep("step4", "");
             updateStep("step5", "");
 
             try {
+                activeStatus.innerText = "Requesting secure pre-signed URL...";
                 const res = await fetch(CONFIG.apiUrl, {
                     method: "POST",
                     headers: {
@@ -466,6 +569,7 @@
 
                 updateStep("step2", "completed");
                 updateStep("step3", "active");
+                activeStatus.innerText = "Uploading image to S3...";
 
                 const s3Res = await fetch(data.uploadUrl, {
                     method: "PUT",
@@ -480,17 +584,258 @@
 
                 updateStep("step3", "completed");
                 updateStep("step4", "active");
+                activeStatus.innerText = "Waiting in SQS Queue...";
+
+                // Save to history immediately as "In Queue"
+                compressAndSaveHistoryItem(file, file.name, fileSizeStr, timestampStr, "In Queue");
 
                 setTimeout(() => {
                     updateStep("step4", "completed");
                     updateStep("step5", "completed");
-                }, 3000);
+                    activeStatus.innerText = "Successfully Processed & Emailed";
+                    activeStatus.style.borderColor = "#28a745";
+                    activeStatus.style.color = "#155724";
+                    activeStatus.style.background = "#d4edda";
+
+                    // Update history item to "Processed"
+                    updateHistoryItemStatus(file.name, "Processed & Emailed");
+                }, 5000);
 
             } catch (err) {
+                activeStatus.innerText = "Upload Failed";
+                activeStatus.style.borderColor = "#dc3545";
+                activeStatus.style.color = "#721c24";
+                activeStatus.style.background = "#f8d7da";
                 alert("Pipeline failed: " + err.message);
                 console.error(err);
             }
         }
+
+        // --- Local History Management ---
+
+        // --- IndexedDB Storage for Full Quality Images ---
+        const DB_NAME = "AuraVisionDB";
+        const STORE_NAME = "images";
+
+        function openDatabase() {
+            return new Promise((resolve, reject) => {
+                const request = indexedDB.open(DB_NAME, 1);
+                request.onupgradeneeded = (e) => {
+                    const db = e.target.result;
+                    if (!db.objectStoreNames.contains(STORE_NAME)) {
+                        db.createObjectStore(STORE_NAME);
+                    }
+                };
+                request.onsuccess = (e) => resolve(e.target.result);
+                request.onerror = (e) => reject(e.target.error);
+            });
+        }
+
+        async function saveFullImage(id, dataUrl) {
+            try {
+                const db = await openDatabase();
+                return new Promise((resolve, reject) => {
+                    const tx = db.transaction(STORE_NAME, "readwrite");
+                    const store = tx.objectStore(STORE_NAME);
+                    const request = store.put(dataUrl, id);
+                    request.onsuccess = () => resolve();
+                    request.onerror = () => reject(request.error);
+                });
+            } catch (err) {
+                console.error("IndexedDB save failed", err);
+            }
+        }
+
+        async function getFullImage(id) {
+            try {
+                const db = await openDatabase();
+                return new Promise((resolve, reject) => {
+                    const tx = db.transaction(STORE_NAME, "readonly");
+                    const store = tx.objectStore(STORE_NAME);
+                    const request = store.get(id);
+                    request.onsuccess = () => resolve(request.result);
+                    request.onerror = () => reject(request.error);
+                });
+            } catch (err) {
+                console.error("IndexedDB get failed", err);
+                return null;
+            }
+        }
+
+        function getHistoryKey() {
+            return `auravision_history_$${userEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
+        }
+
+        function loadHistory() {
+            const key = getHistoryKey();
+            try {
+                const historyData = localStorage.getItem(key);
+                return historyData ? JSON.parse(historyData) : [];
+            } catch (e) {
+                console.error("Failed to load upload history", e);
+                return [];
+            }
+        }
+
+        function saveHistory(historyList) {
+            const key = getHistoryKey();
+            try {
+                localStorage.setItem(key, JSON.stringify(historyList.slice(0, 5)));
+            } catch (e) {
+                console.error("Failed to save upload history", e);
+            }
+        }
+
+        function compressAndSaveHistoryItem(file, name, size, time, status) {
+            const reader = new FileReader();
+            reader.onload = async function(e) {
+                const fullBase64 = e.target.result;
+                const itemId = Date.now();
+                
+                // Save full resolution image to IndexedDB
+                await saveFullImage(itemId, fullBase64);
+
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.createElement('canvas');
+                    const max_size = 80; // tiny thumbnail for history list
+                    let width = img.width;
+                    let height = img.height;
+                    
+                    if (width > height) {
+                        if (width > max_size) {
+                            height *= max_size / width;
+                            width = max_size;
+                        }
+                    } else {
+                        if (height > max_size) {
+                            width *= max_size / height;
+                            height = max_size;
+                        }
+                    }
+
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+
+                    const thumbnailBase64 = canvas.toDataURL('image/jpeg', 0.6);
+                    
+                    const newItem = {
+                        id: itemId,
+                        fileName: name,
+                        fileSize: size,
+                        timestamp: time,
+                        status: status,
+                        thumbnailData: thumbnailBase64
+                    };
+
+                    let currentHistory = loadHistory();
+                    currentHistory = currentHistory.filter(item => item.fileName !== name);
+                    currentHistory.unshift(newItem);
+                    
+                    saveHistory(currentHistory);
+                    renderHistoryList(currentHistory);
+                };
+                img.src = fullBase64;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function updateHistoryItemStatus(fileName, newStatus) {
+            let currentHistory = loadHistory();
+            currentHistory.forEach(item => {
+                if (item.fileName === fileName) {
+                    item.status = newStatus;
+                }
+            });
+            saveHistory(currentHistory);
+            renderHistoryList(currentHistory);
+        }
+
+        function renderHistoryList(history) {
+            const listContainer = document.getElementById("historyList");
+            listContainer.innerHTML = "";
+
+            if (!history || history.length === 0) {
+                listContainer.innerHTML = `<div class="no-history">No uploads history yet.</div>`;
+                return;
+            }
+
+            history.forEach(item => {
+                const itemDiv = document.createElement("div");
+                itemDiv.style.cssText = "border: 1px solid #eee; border-radius: 6px; padding: 10px 15px; display: flex; align-items: center; gap: 15px; background: #fff; margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);";
+
+                const isCompleted = item.status.includes("Processed");
+                const badgeColor = isCompleted ? "#155724" : "#004085";
+                const badgeBg = isCompleted ? "#d4edda" : "#cce5ff";
+                const badgeBorder = isCompleted ? "#c3e6cb" : "#b8daff";
+
+                itemDiv.innerHTML = `
+                    <img src="$${item.thumbnailData || item.imageData}" alt="Thumbnail" style="width: 40px; height: 40px; border-radius: 4px; object-fit: cover; border: 1px solid #eee; background: #fff;">
+                    <div style="flex-grow: 1; text-align: left; min-width: 0; font-size: 0.85em;">
+                        <div style="font-weight: bold; color: #333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">$${item.fileName}</div>
+                        <div style="color: #666; font-size: 0.8em; margin-top: 2px;">
+                            $${item.timestamp} | $${item.fileSize}
+                        </div>
+                    </div>
+                    <span style="font-size: 0.8em; font-weight: bold; padding: 3px 6px; border-radius: 4px; display: inline-block; color: $${badgeColor}; background-color: $${badgeBg}; border: 1px solid $${badgeBorder};">$${item.status}</span>
+                    <button class="btn-secondary" onclick="viewHistoryItem($${item.id})" style="width: auto; padding: 5px 10px; margin: 0 0 0 10px; font-size: 0.85em; background-color: #007bff; border-radius: 4px; color: white; border: none; cursor: pointer; font-weight: bold;">View</button>
+                `;
+                listContainer.appendChild(itemDiv);
+            });
+        }
+
+        function loadAndRenderHistory() {
+            const history = loadHistory();
+            renderHistoryList(history);
+        }
+
+        // --- Modal Functionality ---
+
+        async function viewHistoryItem(itemId) {
+            const history = loadHistory();
+            const item = history.find(i => i.id === itemId);
+            if (!item) return;
+
+            // Load small thumbnail as immediate placeholder
+            document.getElementById("modalPreview").src = item.thumbnailData || item.imageData || "";
+            document.getElementById("modalFileName").innerText = item.fileName;
+            document.getElementById("modalFileSize").innerText = item.fileSize;
+            document.getElementById("modalUploadTime").innerText = item.timestamp;
+            document.getElementById("modalStatus").innerText = item.status;
+
+            document.getElementById("detailsModal").style.opacity = "1";
+            document.getElementById("detailsModal").style.pointerEvents = "auto";
+
+            // Asynchronously load the full resolution image from IndexedDB
+            const fullImage = await getFullImage(itemId);
+            if (fullImage) {
+                document.getElementById("modalPreview").src = fullImage;
+            }
+        }
+
+        function closeModal() {
+            document.getElementById("detailsModal").style.opacity = "0";
+            document.getElementById("detailsModal").style.pointerEvents = "none";
+        }
+
+        window.addEventListener("DOMContentLoaded", () => {
+            const storedToken = localStorage.getItem("auravision_token");
+            const storedEmail = localStorage.getItem("auravision_email");
+            if (storedToken && storedEmail) {
+                idToken = storedToken;
+                userEmail = storedEmail;
+                
+                document.getElementById("authCard").classList.add("hidden");
+                document.getElementById("dashboardCard").classList.remove("hidden");
+                document.getElementById("tokenDisplay").innerText = idToken;
+                
+                updateStep("step1", "completed");
+                loadAndRenderHistory();
+            }
+        });
     </script>
 </body>
+
 </html>

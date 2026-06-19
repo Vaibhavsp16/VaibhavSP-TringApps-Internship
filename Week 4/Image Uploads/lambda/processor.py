@@ -17,8 +17,10 @@ def handler(event, context):
         key = body['key']
         uploader_email = body['uploader_email']
         labels = body['labels']
+        file_size = body.get('file_size', 'Unknown')
+        upload_time = body.get('upload_time', 'Unknown')
         
-        print(f"Processing image {key} uploaded by {uploader_email}")
+        print(f"Processing image {key} uploaded by {uploader_email} | Size: {file_size} | Time: {upload_time}")
         
         try:
             copy_source = {'Bucket': upload_bucket, 'Key': key}
@@ -33,6 +35,8 @@ def handler(event, context):
             analysis_data = {
                 "original_file": key,
                 "uploader_email": uploader_email,
+                "file_size": file_size,
+                "upload_time": upload_time,
                 "detected_labels": labels
             }
             s3.put_object(
@@ -50,7 +54,11 @@ def handler(event, context):
             
             email_body = (
                 f"Hello!\n\n"
-                f"Your image '{key}' has been processed by the AI pipeline.\n\n"
+                f"Your image has been successfully processed by the AI pipeline.\n\n"
+                f"--- Image Details ---\n"
+                f"- File Name: {key}\n"
+                f"- File Size: {file_size}\n"
+                f"- Upload Time: {upload_time}\n\n"
                 f"--- AI Image Recognition Labels ---\n"
                 f"{labels_summary}\n\n"
                 f"S3 Locations:\n"

@@ -2,6 +2,7 @@ import json
 import os
 import boto3
 import urllib.parse
+import math
 
 # Initialize clients
 s3 = boto3.client('s3')
@@ -23,7 +24,28 @@ def handler(event, context):
             metadata = s3_metadata.get('Metadata', {})
             uploader_email = metadata.get('uploader-email', 'unknown-user@example.com')
             
-            print(f"File {key} uploaded by: {uploader_email}")
+            content_length = s3_metadata.get('ContentLength', 0)
+            last_modified = s3_metadata.get('LastModified')
+            
+            # format size
+            if content_length == 0:
+                file_size_str = "0 Bytes"
+            else:
+                try:
+                    k = 1024
+                    sizes = ['Bytes', 'KB', 'MB', 'GB']
+                    i = int(math.floor(math.log(content_length) / math.log(k)))
+                    file_size_str = f"{round(content_length / (k ** i), 2)} {sizes[i]}"
+                except Exception:
+                    file_size_str = f"{content_length} Bytes"
+            
+            # format last modified timestamp
+            if last_modified:
+                upload_time_str = last_modified.strftime('%m/%d/%Y, %I:%M:%S %p UTC')
+            else:
+                upload_time_str = 'Unknown'
+            
+            print(f"File {key} uploaded by: {uploader_email} | Size: {file_size_str} | Time: {upload_time_str}")
             
             rek_response = rekognition.detect_labels(
                 Image={
@@ -46,7 +68,9 @@ def handler(event, context):
                 "bucket": bucket,
                 "key": key,
                 "uploader_email": uploader_email,
-                "labels": labels
+                "labels": labels,
+                "file_size": file_size_str,
+                "upload_time": upload_time_str
             }
             
             sqs.send_message(
