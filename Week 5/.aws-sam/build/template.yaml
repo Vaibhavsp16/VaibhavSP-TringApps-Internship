@@ -1,0 +1,26 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: 'Lab 1: Simple Hello World API using AWS SAM'
+Resources:
+  HelloWorldFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: hello.handler
+      Runtime: python3.9
+      CodeUri: HelloWorldFunction
+      Description: Simple Hello World Lambda
+      Timeout: 10
+      MemorySize: 128
+      Events:
+        HelloAPI:
+          Type: Api
+          Properties:
+            Path: /hello
+            Method: get
+    Metadata:
+      SamResourceId: HelloWorldFunction
+Outputs:
+  HelloWorldApiUrl:
+    Description: API Gateway endpoint URL for Hello World function
+    Value:
+      Fn::Sub: https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/hello
