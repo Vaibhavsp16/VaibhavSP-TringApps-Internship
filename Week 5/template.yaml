@@ -19,6 +19,22 @@ Resources:
             Path: /hello
             Method: get
 
+  HelloWorldFunctionErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: "Alarm if HelloWorldFunction fails"
+      Namespace: "AWS/Lambda"
+      MetricName: "Errors"
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref HelloWorldFunction
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
 Outputs:
   HelloWorldApiUrl:
     Description: "API Gateway endpoint URL for Hello World function"
