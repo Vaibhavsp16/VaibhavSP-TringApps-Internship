@@ -86,7 +86,7 @@ jobs:
       - uses: aws-actions/setup-sam@v2
         with:
           use-installer: true
-      - run: sam build --template ${SAM_TEMPLATE}
+      - run: sam build --template "${SAM_TEMPLATE}"
 
       - name: Assume the testing pipeline user role
         uses: aws-actions/configure-aws-credentials@v4
@@ -123,7 +123,7 @@ jobs:
           use-installer: true
 
       - name: Build resources
-        run: sam build --template ${SAM_TEMPLATE}
+        run: sam build --template "${SAM_TEMPLATE}"
 
       - name: Assume the testing pipeline user role
         uses: aws-actions/configure-aws-credentials@v4
