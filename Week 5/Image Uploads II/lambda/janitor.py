@@ -37,7 +37,6 @@ def handler(event, context):
     r = get_redis_client()
     
     try:
-        # Find images stuck in 'PENDING' for more than 5 minutes
         with conn.cursor() as cursor:
             sql = """
             SELECT image_id, user_id, original_name, s3_raw_key 
@@ -54,25 +53,26 @@ def handler(event, context):
             user_id = record['user_id']
             s3_key = record['s3_raw_key']
             
-            # Check if S3 object actually exists
             object_exists = False
             file_size = 0
+            uploader_sub = user_id
+            uploader_email = 'unknown-user@example.com'
             try:
                 head = s3.head_object(Bucket=UPLOAD_BUCKET, Key=s3_key)
                 object_exists = True
                 file_size = head.get('ContentLength', 0)
+                metadata = head.get('Metadata', {})
+                uploader_sub = metadata.get('uploader-sub', user_id)
+                uploader_email = metadata.get('uploader-email', 'unknown-user@example.com')
                 print(f"Reconciliation: File {s3_key} exists in S3 bucket.")
             except ClientError as e:
-                # 404 error means file was never uploaded
                 if e.response['Error']['Code'] == '404':
                     print(f"Reconciliation: File {s3_key} does NOT exist in S3.")
                 else:
                     print(f"S3 connection error checking {s3_key}: {str(e)}")
-                    continue # skip to next to avoid false markings
+                    continue
             
             if object_exists:
-                # Case A: File exists in S3 but DB is stuck in PENDING.
-                # Recover it by updating status to EXTRACTED and sending it to SQS!
                 with conn.cursor() as cursor:
                     sql_update = """
                     UPDATE images 
@@ -82,12 +82,12 @@ def handler(event, context):
                     cursor.execute(sql_update, (file_size, image_id))
                 conn.commit()
                 
-                # Push SQS task so Processor Lambda processes it
                 message_body = {
                     "image_id": image_id,
                     "bucket": UPLOAD_BUCKET,
                     "key": s3_key,
-                    "uploader_email": user_id,
+                    "uploader_sub": uploader_sub,
+                    "uploader_email": uploader_email,
                     "labels": [{"Name": "Recovered by Janitor", "Confidence": 100.0}],
                     "file_size": f"{round(file_size / 1024, 2)} KB" if file_size else "Unknown",
                     "upload_time": "Recovered"
@@ -98,8 +98,6 @@ def handler(event, context):
                 )
                 print(f"Recovered stuck upload: {image_id}. Triggered SQS processing.")
             else:
-                # Case B: File does not exist in S3. The upload failed.
-                # Mark as FAILED in RDS so it updates the dashboard correctly.
                 with conn.cursor() as cursor:
                     sql_fail = """
                     UPDATE images 
@@ -110,7 +108,6 @@ def handler(event, context):
                 conn.commit()
                 print(f"Marked failed upload as FAILED: {image_id}")
             
-            # Invalidate user history cache in Redis so user sees the updated status
             try:
                 r.delete(f"user:history:{user_id}")
                 print(f"Invalidated Redis cache for user: {user_id}")

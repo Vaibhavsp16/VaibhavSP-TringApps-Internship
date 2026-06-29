@@ -37,7 +37,6 @@ def parse_vemb_result(response, **options):
             try:
                 result.append(int(response[i]))
             except ValueError:
-                # if the value is not an integer, it should be a float
                 result.append(float(response[i]))
 
         return result
@@ -56,8 +55,6 @@ def parse_vlinks_result(response, **options):
 
     if options.get(CallbacksOptions.WITHSCORES.value):
         result = []
-        # Redis will return a list of list of strings.
-        # This list have to be transformed to list of dicts
         for level_item in response:
             level_data_dict = {}
             for key, value in pairs_to_dict(level_item).items():
@@ -66,8 +63,6 @@ def parse_vlinks_result(response, **options):
             result.append(level_data_dict)
         return result
     else:
-        # return the list of elements for each level
-        # list of lists
         return response
 
 
@@ -88,10 +83,7 @@ def parse_vsim_result(response, **options):
     withscores = bool(options.get(CallbacksOptions.WITHSCORES.value))
     withattribs = bool(options.get(CallbacksOptions.WITHATTRIBS.value))
 
-    # Exactly one of withscores or withattribs is True
     if (withscores and not withattribs) or (not withscores and withattribs):
-        # Redis will return a list of list of pairs.
-        # This list have to be transformed to dict
         result_dict = {}
         if options.get(CallbacksOptions.RESP3.value):
             resp_dict = response
@@ -125,6 +117,4 @@ def parse_vsim_result(response, **options):
                 result_dict[elem] = {"score": float(score), "attributes": attribs_dict}
         return result_dict
     else:
-        # return the list of elements for each level
-        # list of lists
         return response

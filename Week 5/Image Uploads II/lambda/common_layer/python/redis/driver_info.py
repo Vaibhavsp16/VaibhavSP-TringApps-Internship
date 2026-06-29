@@ -16,7 +16,6 @@ def _validate_no_invalid_chars(value: str, field_name: str) -> None:
     """
 
     for ch in value:
-        # printable ASCII without space: '!' (0x21) to '~' (0x7E)
         if ord(ch) < 0x21 or ord(ch) > 0x7E or ch in _BRACES:
             raise ValueError(
                 f"{field_name} must not contain spaces, newlines, non-printable characters, or braces"
@@ -128,7 +127,6 @@ class DriverInfo:
         _validate_driver_version(driver_version)
 
         entry = _format_driver_entry(driver_name, driver_version)
-        # insert at the beginning so latest is first
         self._upstream.insert(0, entry)
         return self
 

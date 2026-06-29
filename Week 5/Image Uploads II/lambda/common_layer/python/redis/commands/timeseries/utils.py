@@ -26,7 +26,6 @@ def parse_range(response, **kwargs):
     """Parse range response. Used by TS.RANGE and TS.REVRANGE (legacy shape)."""
     if not response:
         return []
-    # Multi-aggregator: samples have >2 elements [timestamp, val1, val2, ...]
     if len(response[0]) > 2:
         return [tuple([r[0]] + [float(v) for v in r[1:]]) for r in response]
     return [tuple((r[0], float(r[1]))) for r in response]
@@ -130,8 +129,6 @@ def parse_m_range(response, **kwargs):
 
 def _m_range_metadata(aggregation_type=None):
     if aggregation_type is None:
-        # Aggregators are empty when TS.MRANGE/TS.MREVRANGE is called without
-        # AGGREGATION; this mirrors RESP3 metadata such as {"aggregators": []}.
         return {"aggregators": []}
     if isinstance(aggregation_type, list):
         aggregators = aggregation_type

@@ -48,7 +48,7 @@ class SentinelManagedConnection(Connection):
 
     async def _connect_retry(self):
         if self._reader:
-            return  # already connected
+            return 
         if self.connection_pool.is_master:
             await self.connect_to(await self.connection_pool.get_master_address())
         else:
@@ -57,7 +57,7 @@ class SentinelManagedConnection(Connection):
                     return await self.connect_to(slave)
                 except ConnectionError:
                     continue
-            raise SlaveNotFoundError  # Never be here
+            raise SlaveNotFoundError 
 
     async def connect(self):
         return await self.retry.call_with_retry(
@@ -82,11 +82,6 @@ class SentinelManagedConnection(Connection):
             )
         except ReadOnlyError:
             if self.connection_pool.is_master:
-                # When talking to a master, a ReadOnlyError when likely
-                # indicates that the previous master that we're still connected
-                # to has been demoted to a slave and there's a new master.
-                # calling disconnect will force the connection to re-query
-                # sentinel during the next connect() attempt.
                 await self.disconnect()
                 raise ConnectionError("The previous master is now a slave")
             raise
@@ -144,8 +139,6 @@ class SentinelConnectionPool(ConnectionPool):
         if self.is_master:
             if self.master_address != master_address:
                 self.master_address = master_address
-                # disconnect any idle connections so that they reconnect
-                # to the new master the next time that they are used.
                 await self.disconnect(inuse_connections=False)
         return master_address
 
@@ -159,7 +152,6 @@ class SentinelConnectionPool(ConnectionPool):
                 self.slave_rr_counter = (self.slave_rr_counter + 1) % len(slaves)
                 slave = slaves[self.slave_rr_counter]
                 yield slave
-        # Fallback to the master connection
         try:
             yield await self.get_master_address()
         except MasterNotFoundError:
@@ -204,8 +196,6 @@ class Sentinel(AsyncSentinelCommands):
         force_master_ip=None,
         **connection_kwargs,
     ):
-        # if sentinel_kwargs isn't defined, use the socket_* options from
-        # connection_kwargs
         if sentinel_kwargs is None:
             sentinel_kwargs = {
                 k: v for k, v in connection_kwargs.items() if k.startswith("socket_")
@@ -228,8 +218,6 @@ class Sentinel(AsyncSentinelCommands):
         """
         once = bool(kwargs.pop("once", False))
 
-        # Check if command is supposed to return the original
-        # responses instead of boolean value.
         return_responses = bool(kwargs.pop("return_responses", False))
 
         if once:
@@ -267,7 +255,6 @@ class Sentinel(AsyncSentinelCommands):
     def check_master_state(self, state: dict, service_name: str) -> bool:
         if not state["is_master"] or state["is_sdown"] or state["is_odown"]:
             return False
-        # Check if our sentinel doesn't see other nodes
         if state["num-other-sentinels"] < self.min_other_sentinels:
             return False
         return True
@@ -289,7 +276,6 @@ class Sentinel(AsyncSentinelCommands):
                 continue
             state = masters.get(service_name)
             if state and self.check_master_state(state, service_name):
-                # Put this sentinel at the top of the list
                 self.sentinels[0], self.sentinels[sentinel_no] = (
                     sentinel,
                     self.sentinels[0],
@@ -368,7 +354,6 @@ class Sentinel(AsyncSentinelCommands):
         connection_kwargs.update(kwargs)
 
         connection_pool = connection_pool_class(service_name, self, **connection_kwargs)
-        # The Redis object "owns" the pool
         return redis_class.from_pool(connection_pool)
 
     def slave_for(
@@ -400,5 +385,4 @@ class Sentinel(AsyncSentinelCommands):
         connection_kwargs.update(kwargs)
 
         connection_pool = connection_pool_class(service_name, self, **connection_kwargs)
-        # The Redis object "owns" the pool
         return redis_class.from_pool(connection_pool)

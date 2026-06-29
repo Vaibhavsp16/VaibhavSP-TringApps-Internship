@@ -9,7 +9,6 @@ Usage in Redis async client code:
     from redis.asyncio.observability.recorder import record_operation_duration
 
     start_time = time.monotonic()
-    # ... execute Redis command ...
     await record_operation_duration(
         command_name='SET',
         duration_seconds=time.monotonic() - start_time,
@@ -38,7 +37,6 @@ if TYPE_CHECKING:
     from redis.asyncio.multidb.database import AsyncDatabase
     from redis.observability.config import OTelConfig
 
-# Global metrics collector instance (lazy-initialized)
 _async_metrics_collector: Optional[RedisMetricsCollector] = None
 
 CONNECTION_COUNT_REGISTRY_KEY = "connection_count"
@@ -61,7 +59,6 @@ def _get_or_create_collector() -> Optional[RedisMetricsCollector]:
         if manager is None or not manager.config.enabled_telemetry:
             return None
 
-        # Get meter from the global MeterProvider
         meter = manager.get_meter_provider().get_meter(
             RedisMetricsCollector.METER_NAME, RedisMetricsCollector.METER_VERSION
         )
@@ -70,10 +67,8 @@ def _get_or_create_collector() -> Optional[RedisMetricsCollector]:
         return _async_metrics_collector
 
     except ImportError:
-        # Observability module not available
         return None
     except Exception:
-        # Any other error - don't break Redis operations
         return None
 
 
@@ -121,7 +116,7 @@ async def record_operation_duration(
 
     Example:
         >>> start = time.monotonic()
-        >>> # ... execute command ...
+        >>>
         >>> await record_operation_duration('SET', time.monotonic() - start, 'localhost', 6379, '0')
     """
     collector = _get_or_create_collector()
@@ -243,7 +238,6 @@ async def register_pools_connection_count(
         return
 
     try:
-        # Lazy import
         from opentelemetry.metrics import Observation
 
         def connection_count_callback():
@@ -434,14 +428,12 @@ async def record_pubsub_message(
     if collector is None:
         return
 
-    # Check if channel names should be hidden
     effective_channel = channel
     if channel is not None:
         config = await _get_config()
         if config is not None and config.hide_pubsub_channel_names:
             effective_channel = None
         else:
-            # Normalize bytes to str for OTel attributes
             effective_channel = str_if_bytes(channel)
 
     try:
@@ -471,7 +463,6 @@ async def record_streaming_lag(
     if collector is None:
         return
 
-    # Check if stream names should be hidden
     effective_stream_name = stream_name
     if stream_name is not None:
         config = await _get_config()
@@ -511,11 +502,9 @@ async def record_streaming_lag_from_response(
     try:
         now = datetime.now().timestamp()
 
-        # Check if stream names should be hidden
         config = await _get_config()
         hide_stream_names = config is not None and config.hide_stream_names
 
-        # RESP3 format: dict
         if isinstance(response, dict):
             for stream_name, stream_messages in response.items():
                 effective_stream_name = (
@@ -526,7 +515,6 @@ async def record_streaming_lag_from_response(
                         message_id, _ = message
                         message_id = str_if_bytes(message_id)
                         timestamp, _ = message_id.split("-")
-                        # Ensure lag is non-negative (clock skew can cause negative values)
                         lag_seconds = max(0.0, now - int(timestamp) / 1000)
 
                         collector.record_streaming_lag(
@@ -535,7 +523,6 @@ async def record_streaming_lag_from_response(
                             consumer_group=consumer_group,
                         )
         else:
-            # RESP2 format: list
             for stream_entry in response:
                 stream_name = str_if_bytes(stream_entry[0])
                 effective_stream_name = None if hide_stream_names else stream_name
@@ -544,7 +531,6 @@ async def record_streaming_lag_from_response(
                     message_id, _ = message
                     message_id = str_if_bytes(message_id)
                     timestamp, _ = message_id.split("-")
-                    # Ensure lag is non-negative (clock skew can cause negative values)
                     lag_seconds = max(0.0, now - int(timestamp) / 1000)
 
                     collector.record_streaming_lag(

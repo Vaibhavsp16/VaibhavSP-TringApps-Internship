@@ -134,7 +134,6 @@ class first_value(Reducer):
         """
         Selects the first value of the given field within the group.
 
-        ### Parameter
 
         - **field**: Source field used for the value
         - **byfields**: How to sort the results. This can be either the
@@ -172,7 +171,6 @@ class random_sample(Reducer):
 
     def __init__(self, field: str, size: int) -> None:
         """
-        ### Parameter
 
         **field**: Field to sample from
         **size**: Return this many items (can be less)

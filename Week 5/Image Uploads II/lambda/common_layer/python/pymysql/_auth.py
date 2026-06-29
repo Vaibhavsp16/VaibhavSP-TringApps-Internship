@@ -23,8 +23,6 @@ SCRAMBLE_LENGTH = 20
 sha1_new = partial(hashlib.new, "sha1")
 
 
-# mysql_native_password
-# https://dev.mysql.com/doc/internals/en/secure-password-authentication.html#packet-Authentication::Native41
 
 
 def scramble_native_password(password, message):
@@ -50,8 +48,6 @@ def _my_crypt(message1, message2):
     return bytes(result)
 
 
-# MariaDB's client_ed25519-plugin
-# https://mariadb.com/kb/en/library/connection/#client_ed25519-plugin
 
 _nacl_bindings = False
 
@@ -80,40 +76,29 @@ def ed25519_password(password, scramble):
 
     Secret and public key are derived from password.
     """
-    # variable names based on rfc8032 section-5.1.6
-    #
     if not _nacl_bindings:
         _init_nacl()
 
-    # h = SHA512(password)
     h = hashlib.sha512(password).digest()
 
-    # s = prune(first_half(h))
     s = _scalar_clamp(h[:32])
 
-    # r = SHA512(second_half(h) || M)
     r = hashlib.sha512(h[32:] + scramble).digest()
 
-    # R = encoded point [r]B
     r = _nacl_bindings.crypto_core_ed25519_scalar_reduce(r)
     R = _nacl_bindings.crypto_scalarmult_ed25519_base_noclamp(r)
 
-    # A = encoded point [s]B
     A = _nacl_bindings.crypto_scalarmult_ed25519_base_noclamp(s)
 
-    # k = SHA512(R || A || M)
     k = hashlib.sha512(R + A + scramble).digest()
 
-    # S = (k * s + r) mod L
     k = _nacl_bindings.crypto_core_ed25519_scalar_reduce(k)
     ks = _nacl_bindings.crypto_core_ed25519_scalar_mul(k, s)
     S = _nacl_bindings.crypto_core_ed25519_scalar_add(ks, r)
 
-    # signature = R || S
     return R + S
 
 
-# sha256_password
 
 
 def _roundtrip(conn, send_data):
@@ -124,11 +109,8 @@ def _roundtrip(conn, send_data):
 
 
 def _xor_password(password, salt):
-    # Trailing NUL character will be added in Auth Switch Request.
-    # See https://github.com/mysql/mysql-server/blob/7d10c82196c8e45554f27c00681474a9fb86d137/sql/auth/sha2_password.cc#L939-L945
     salt = salt[:SCRAMBLE_LENGTH]
     password_bytes = bytearray(password)
-    # salt = bytearray(salt)  # for PY2 compat.
     salt_len = len(salt)
     for i in range(len(password_bytes)):
         password_bytes[i] ^= salt[i % salt_len]
@@ -169,7 +151,6 @@ def sha256_password_auth(conn, pkt):
         if conn.salt.endswith(b"\0"):
             conn.salt = conn.salt[:-1]
         if not conn.server_public_key and conn.password:
-            # Request server public key
             if DEBUG:
                 print("sha256: Requesting server public key")
             pkt = _roundtrip(conn, b"\1")
@@ -191,7 +172,6 @@ def sha256_password_auth(conn, pkt):
 
 
 def scramble_caching_sha2(password, nonce):
-    # (bytes, bytes) -> bytes
     """Scramble algorithm used in cached_sha2_password fast path.
 
     XOR(SHA256(password), SHA256(SHA256(SHA256(password)), nonce))
@@ -211,30 +191,23 @@ def scramble_caching_sha2(password, nonce):
 
 
 def caching_sha2_password_auth(conn, pkt):
-    # No password fast path
     if not conn.password:
         return _roundtrip(conn, b"")
 
     if pkt.is_auth_switch_request():
-        # Try from fast auth
         conn.salt = pkt.read_all()
-        if conn.salt.endswith(b"\0"):  # str.removesuffix is available in 3.9
+        if conn.salt.endswith(b"\0"): 
             conn.salt = conn.salt[:-1]
         if DEBUG:
             print(f"caching sha2: Trying fast path. salt={conn.salt.hex()!r}")
         scrambled = scramble_caching_sha2(conn.password, conn.salt)
         pkt = _roundtrip(conn, scrambled)
-    # else: fast auth is tried in initial handshake
 
     if not pkt.is_extra_auth_data():
         raise OperationalError(
             "caching sha2: Unknown packet for fast auth: %s" % pkt._data[:1]
         )
 
-    # magic numbers:
-    # 2 - request public key
-    # 3 - fast auth succeeded
-    # 4 - need full auth
 
     pkt.advance(1)
     n = pkt.read_uint8()
@@ -243,7 +216,7 @@ def caching_sha2_password_auth(conn, pkt):
         if DEBUG:
             print("caching sha2: succeeded by fast path.")
         pkt = conn._read_packet()
-        pkt.check_error()  # pkt must be OK packet
+        pkt.check_error() 
         return pkt
 
     if n != 4:
@@ -258,7 +231,7 @@ def caching_sha2_password_auth(conn, pkt):
         return _roundtrip(conn, conn.password + b"\0")
 
     if not conn.server_public_key:
-        pkt = _roundtrip(conn, b"\x02")  # Request public key
+        pkt = _roundtrip(conn, b"\x02") 
         if not pkt.is_extra_auth_data():
             raise OperationalError(
                 "caching sha2: Unknown packet for public key: %s" % pkt._data[:1]

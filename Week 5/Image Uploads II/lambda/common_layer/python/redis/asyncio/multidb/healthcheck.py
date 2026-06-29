@@ -15,7 +15,6 @@ from redis.http.http_client import HttpClient
 from redis.multidb.exception import UnhealthyDatabaseException
 from redis.retry import Retry
 
-# Type alias for async Redis clients (standalone or cluster)
 AsyncRedisClientT = Union[AsyncRedis, AsyncRedisCluster]
 
 
@@ -124,7 +123,6 @@ class AbstractHealthCheckPolicy(HealthCheckPolicy):
     """
 
     def __init__(self):
-        # Single client per database, keyed by database id
         self._clients: dict[int, AsyncRedisClientT] = {}
 
     async def execute(self, health_checks: List[HealthCheck], database) -> bool:
@@ -136,26 +134,21 @@ class AbstractHealthCheckPolicy(HealthCheckPolicy):
         propagate exceptions naturally.
         """
 
-        # Create wrapper tasks that apply individual timeouts
         async def execute_with_timeout(health_check: HealthCheck):
             return await asyncio.wait_for(
                 self._execute(health_check, database),
                 timeout=health_check.health_check_timeout,
             )
 
-        # Run all health checks concurrently and collect results/exceptions
         results = await asyncio.gather(
             *[execute_with_timeout(hc) for hc in health_checks],
             return_exceptions=True,
         )
 
-        # Check results - handle exceptions and failures
         for result in results:
             if isinstance(result, Exception):
-                # Any exception (including TimeoutError) makes the database unhealthy
                 raise UnhealthyDatabaseException("Unhealthy database", database, result)
             elif not result:
-                # Health check returned False
                 return False
 
         return True
@@ -172,25 +165,17 @@ class AbstractHealthCheckPolicy(HealthCheckPolicy):
         client = self._clients.get(db_id)
 
         if client is None:
-            # Check for both sync and async standalone Redis clients
             if isinstance(database.client, (AsyncRedis, SyncRedis)):
                 conn_kwargs = database.client.get_connection_kwargs()
                 filtered_kwargs = _filter_kwargs(conn_kwargs, AsyncRedis)
                 client = AsyncRedis(**filtered_kwargs)
             elif isinstance(database.client, (AsyncRedisCluster, SyncRedisCluster)):
-                # Cluster client - create a single cluster client that handles
-                # topology changes internally
                 conn_kwargs = database.client.get_connection_kwargs().copy()
                 filtered_kwargs = _filter_kwargs(conn_kwargs, AsyncRedisCluster)
                 startup_nodes = database.client.startup_nodes
-                # Use the first node as the startup node
                 if startup_nodes:
                     first_node = startup_nodes[0]
                     nodes_manager = database.client.nodes_manager
-                    # The sync and async NodesManager expose this setting under
-                    # different names (``_require_full_coverage`` vs
-                    # ``require_full_coverage``), so resolve it defensively to
-                    # support a sync RedisCluster underlying client too.
                     require_full_coverage = getattr(
                         nodes_manager,
                         "require_full_coverage",
@@ -276,8 +261,6 @@ class HealthyMajorityPolicy(AbstractHealthCheckPolicy):
         Uses a single client that handles topology changes automatically.
         """
         probes = health_check.health_check_probes
-        # Strict majority: more than half must pass
-        # (probes - 1) // 2 gives the max allowed failures
         allowed_unsuccessful_probes = (probes - 1) // 2
         client = await self.get_client(database)
         last_exception = None
@@ -286,12 +269,10 @@ class HealthyMajorityPolicy(AbstractHealthCheckPolicy):
             try:
                 result = await health_check.check_health(database, client)
                 if not result:
-                    # Probe failed (returned False)
                     allowed_unsuccessful_probes -= 1
                     if allowed_unsuccessful_probes < 0:
                         return False
             except Exception as e:
-                # Probe failed (exception)
                 last_exception = e
                 allowed_unsuccessful_probes -= 1
                 if allowed_unsuccessful_probes < 0:
@@ -322,7 +303,6 @@ class HealthyAnyPolicy(AbstractHealthCheckPolicy):
             try:
                 result = await health_check.check_health(database, client)
                 if result:
-                    # At least one probe succeeded
                     return True
             except Exception as e:
                 last_exception = e
@@ -330,7 +310,6 @@ class HealthyAnyPolicy(AbstractHealthCheckPolicy):
             if attempt < probes - 1:
                 await asyncio.sleep(health_check.health_check_delay)
 
-        # All probes failed
         if last_exception:
             raise last_exception
 
@@ -385,7 +364,6 @@ class PingHealthCheck(AbstractHealthCheck):
         if isinstance(hc_client, AsyncRedis):
             return await hc_client.execute_command("PING")
         else:
-            # For a cluster checks if all nodes are healthy.
             all_nodes = hc_client.get_nodes()
             for node in all_nodes:
                 if not await node.redis_connection.execute_command("PING"):
@@ -407,15 +385,12 @@ class LagAwareHealthCheck(AbstractHealthCheck):
         http_timeout: float = DEFAULT_TIMEOUT,
         auth_basic: Optional[Tuple[str, str]] = None,
         verify_tls: bool = True,
-        # TLS verification (server) options
         ca_file: Optional[str] = None,
         ca_path: Optional[str] = None,
         ca_data: Optional[Union[str, bytes]] = None,
-        # Mutual TLS (client cert) options
         client_cert_file: Optional[str] = None,
         client_key_file: Optional[str] = None,
         client_key_password: Optional[str] = None,
-        # Health check configuration
         health_check_probes: int = DEFAULT_HEALTH_CHECK_PROBES,
         health_check_delay: float = DEFAULT_HEALTH_CHECK_DELAY,
         health_check_timeout: float = DEFAULT_HEALTH_CHECK_TIMEOUT,
@@ -474,13 +449,11 @@ class LagAwareHealthCheck(AbstractHealthCheck):
         if isinstance(database.client, (AsyncRedis, SyncRedis)):
             db_host = database.client.get_connection_kwargs()["host"]
         else:
-            # Cluster client
             db_host = database.client.get_nodes()[0].host
 
         base_url = f"{database.health_check_url}:{self._rest_api_port}"
         self._http_client.client.base_url = base_url
 
-        # Find bdb matching to the current database host
         matching_bdb = None
         for bdb in await self._http_client.get("/v1/bdbs"):
             for endpoint in bdb["endpoints"]:
@@ -488,7 +461,6 @@ class LagAwareHealthCheck(AbstractHealthCheck):
                     matching_bdb = bdb
                     break
 
-                # In case if the host was set as public IP
                 for addr in endpoint["addr"]:
                     if addr == db_host:
                         matching_bdb = bdb
@@ -504,5 +476,4 @@ class LagAwareHealthCheck(AbstractHealthCheck):
         )
         await self._http_client.get(url, expect_json=False)
 
-        # Status checked in an http client, otherwise HttpError will be raised
         return True

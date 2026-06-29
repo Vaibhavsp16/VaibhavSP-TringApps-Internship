@@ -68,13 +68,9 @@ from redis.utils import safe_str
 logger = logging.getLogger(__name__)
 
 
-# Type alias for handlers that can be sync or async
 AsyncHandlerT = Callable[[KeyNotification], None | Awaitable[None]]
 
 
-# =============================================================================
-# Async Interface for Keyspace Notifications
-# =============================================================================
 
 
 class AsyncKeyspaceNotificationsInterface(ABC):
@@ -216,9 +212,6 @@ class AsyncKeyspaceNotificationsInterface(ABC):
         pass
 
 
-# =============================================================================
-# Abstract Base Class for Async Keyspace Notifications
-# =============================================================================
 
 
 class AbstractAsyncKeyspaceNotifications(AsyncKeyspaceNotificationsInterface):
@@ -268,14 +261,12 @@ class AbstractAsyncKeyspaceNotifications(AsyncKeyspaceNotificationsInterface):
         so it must not perform blocking I/O or long-running computation —
         prefer an ``async`` handler whenever possible.
         """
-        # Wrap the handler to convert raw messages to KeyNotification objects
         wrapped_handler: Callable | None = None
         if handler is not None:
             key_prefix = self.key_prefix
             is_async_handler = inspect.iscoroutinefunction(handler)
 
             if is_async_handler:
-                # We've verified handler is async, so the result is awaitable
                 async_handler = handler
 
                 async def _async_wrap_handler(message):
@@ -310,10 +301,6 @@ class AbstractAsyncKeyspaceNotifications(AsyncKeyspaceNotificationsInterface):
             else:
                 exact_channels[channel_str] = wrapped_handler
 
-        # Delegate to subclass implementation first.  For standalone Redis
-        # this raises on failure, keeping tracking state clean.  For cluster
-        # implementations the operation is best-effort (partial failures are
-        # logged, not raised) so tracking state is always updated afterwards.
         await self._execute_subscribe(patterns, exact_channels)
         self._track_subscribe(patterns, exact_channels)
 
@@ -339,12 +326,6 @@ class AbstractAsyncKeyspaceNotifications(AsyncKeyspaceNotificationsInterface):
             else:
                 exact_channels.append(channel_str)
 
-        # Delegate to subclass implementation first.  For standalone Redis
-        # this raises on failure, keeping tracking state intact.  For cluster
-        # implementations the operation is best-effort (partial failures are
-        # logged, not raised) so tracking state is always removed afterwards
-        # — this is intentional: the user asked to unsubscribe, so
-        # refresh_subscriptions should not re-subscribe these channels.
         await self._execute_unsubscribe(patterns, exact_channels)
         self._untrack_subscribe(patterns, exact_channels)
 
@@ -478,9 +459,6 @@ class AbstractAsyncKeyspaceNotifications(AsyncKeyspaceNotificationsInterface):
                     raise
 
 
-# =============================================================================
-# Standalone Async Keyspace Notification Manager
-# =============================================================================
 
 
 class AsyncKeyspaceNotifications(AbstractAsyncKeyspaceNotifications):
@@ -515,7 +493,6 @@ class AsyncKeyspaceNotifications(AbstractAsyncKeyspaceNotifications):
         """
         super().__init__(key_prefix, ignore_subscribe_messages)
         self.redis = redis_client
-        # Create PubSub with ignore_subscribe_messages=False so per-call arg works
         self._pubsub: PubSub = redis_client.pubsub(ignore_subscribe_messages=False)
 
     async def _execute_subscribe(
@@ -601,9 +578,6 @@ class AsyncKeyspaceNotifications(AbstractAsyncKeyspaceNotifications):
             pass
 
 
-# =============================================================================
-# Cluster-Aware Async Keyspace Notification Manager
-# =============================================================================
 
 
 class AsyncClusterKeyspaceNotifications(AbstractAsyncKeyspaceNotifications):
@@ -636,20 +610,13 @@ class AsyncClusterKeyspaceNotifications(AbstractAsyncKeyspaceNotifications):
         super().__init__(key_prefix, ignore_subscribe_messages)
         self.cluster = redis_cluster
 
-        # Canonical subscription registry: pattern/channel -> wrapped handler.
-        # In cluster mode there are multiple PubSub objects (one per node), so
-        # this is the single source of truth used to (re-)subscribe new or
-        # failed-over nodes.
         self._subscribed_patterns: dict[str, Any] = {}
         self._subscribed_channels: dict[str, Any] = {}
 
-        # Track subscriptions per node
         self._node_pubsubs: dict[str, PubSub] = {}
 
-        # Lock for topology refresh operations
         self._refresh_lock = asyncio.Lock()
 
-        # Current pubsub index for round-robin polling
         self._poll_index = 0
 
     @property
@@ -692,7 +659,7 @@ class AsyncClusterKeyspaceNotifications(AbstractAsyncKeyspaceNotifications):
         if node.name not in self._node_pubsubs:
             pool_adapter = _ClusterNodePoolAdapter(node)
             pubsub = PubSub(
-                connection_pool=pool_adapter,  # type: ignore[arg-type]
+                connection_pool=pool_adapter, 
                 ignore_subscribe_messages=False,
             )
             self._node_pubsubs[node.name] = pubsub
@@ -735,8 +702,6 @@ class AsyncClusterKeyspaceNotifications(AbstractAsyncKeyspaceNotifications):
             is_new_node = node.name not in self._node_pubsubs
             pubsub = await self._ensure_node_pubsub(node)
             try:
-                # If this is a brand-new node, catch it up on existing
-                # subscriptions before adding the new channels.
                 if is_new_node:
                     if self._subscribed_patterns:
                         await pubsub.psubscribe(**self._subscribed_patterns)
@@ -748,8 +713,6 @@ class AsyncClusterKeyspaceNotifications(AbstractAsyncKeyspaceNotifications):
                 if exact_channels:
                     await pubsub.subscribe(**exact_channels)
             except Exception:
-                # Remove the broken pubsub and its connection pool
-                # so refresh_subscriptions can re-create both later.
                 await self._cleanup_node(node.name)
                 failed_nodes.append(node.name)
 
@@ -828,9 +791,6 @@ class AsyncClusterKeyspaceNotifications(AbstractAsyncKeyspaceNotifications):
 
         total_nodes = len(self._node_pubsubs)
         if total_nodes == 0:
-            # Sleep for the requested timeout so callers that loop
-            # (run(), listen) don't spin the CPU when all node
-            # connections have been cleaned up.
             if timeout > 0:
                 await asyncio.sleep(timeout)
             return None
@@ -838,11 +798,9 @@ class AsyncClusterKeyspaceNotifications(AbstractAsyncKeyspaceNotifications):
         if ignore_subscribe_messages is None:
             ignore_subscribe_messages = self.ignore_subscribe_messages
 
-        # Handle timeout=0 as a single non-blocking poll over all pubsubs
         if timeout == 0.0:
             return await self._poll_all_nodes_once(ignore_subscribe_messages)
 
-        # Calculate per-node timeout for each poll
         per_node_timeout = min(0.1, timeout / max(total_nodes, 1))
 
         start_time = time.monotonic()
@@ -856,7 +814,6 @@ class AsyncClusterKeyspaceNotifications(AbstractAsyncKeyspaceNotifications):
             if not pubsubs:
                 return None
 
-            # Round-robin polling
             self._poll_index = self._poll_index % len(pubsubs)
             pubsub = pubsubs[self._poll_index]
             self._poll_index += 1
@@ -894,8 +851,6 @@ class AsyncClusterKeyspaceNotifications(AbstractAsyncKeyspaceNotifications):
                     timeout=0.0,
                 )
             except (ConnectionError, TimeoutError, RedisError):
-                # Record the error but continue polling remaining healthy
-                # nodes so that already-buffered notifications are not lost.
                 had_error = True
                 continue
 
@@ -904,13 +859,10 @@ class AsyncClusterKeyspaceNotifications(AbstractAsyncKeyspaceNotifications):
                     message, key_prefix=self.key_prefix
                 )
                 if notification is not None:
-                    # Refresh before returning if any node had an error,
-                    # so the next poll cycle has fresh state.
                     if had_error:
                         await self._refresh_subscriptions_on_error()
                     return notification
 
-        # Refresh after polling all nodes if any had errors
         if had_error:
             await self._refresh_subscriptions_on_error()
         return None
@@ -940,7 +892,7 @@ class AsyncClusterKeyspaceNotifications(AbstractAsyncKeyspaceNotifications):
         This is called automatically when a connection error occurs during
         get_message(). It checks if nodes changed before refreshing.
         """
-        self._poll_index = 0  # Reset round-robin index
+        self._poll_index = 0 
 
         try:
             await self.refresh_subscriptions()
@@ -956,7 +908,6 @@ class AsyncClusterKeyspaceNotifications(AbstractAsyncKeyspaceNotifications):
             conn = pubsub.connection
             if conn is None:
                 return False
-            # Async connections use is_connected property
             return conn.is_connected
         except Exception:
             return False
@@ -978,26 +929,20 @@ class AsyncClusterKeyspaceNotifications(AbstractAsyncKeyspaceNotifications):
                 node.name: node for node in self._get_all_primary_nodes()
             }
 
-            # Remove pubsubs for nodes that are no longer primaries
             removed_nodes = set(self._node_pubsubs.keys()) - set(
                 current_primaries.keys()
             )
             for node_name in removed_nodes:
                 await self._cleanup_node(node_name)
 
-            # Detect broken connections for existing nodes and remove them
-            # so they get re-created below
             existing_nodes = set(self._node_pubsubs.keys()) & set(
                 current_primaries.keys()
             )
             for node_name in existing_nodes:
                 pubsub = self._node_pubsubs.get(node_name)
                 if pubsub and not self._is_pubsub_connected(pubsub):
-                    # Connection is broken, remove it so it gets re-created
                     await self._cleanup_node(node_name)
 
-            # Subscribe new nodes (and nodes with broken connections)
-            # to existing patterns/channels
             new_nodes = set(current_primaries.keys()) - set(self._node_pubsubs.keys())
             failed_nodes: list[str] = []
             for node_name in new_nodes:
@@ -1010,11 +955,9 @@ class AsyncClusterKeyspaceNotifications(AbstractAsyncKeyspaceNotifications):
                     if self._subscribed_channels:
                         await pubsub.subscribe(**self._subscribed_channels)
                 except Exception:
-                    # Subscription failed - remove from dict so retry is possible
                     await self._cleanup_node(node_name)
                     failed_nodes.append(node_name)
 
-            # Raise after attempting all nodes so we don't skip any
             if failed_nodes:
                 raise ConnectionError(
                     f"Failed to subscribe to cluster nodes: {', '.join(failed_nodes)}"

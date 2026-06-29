@@ -48,7 +48,6 @@ class Result:
         for i in range(1, len(res), step):
             id = to_string(res[i])
             payload = to_string(res[i + offset]) if has_payload else None
-            # fields_offset = 2 if has_payload else 1
             fields_offset = offset + 1 if has_payload else offset
             score = float(res[i + 1]) if with_scores else None
 
@@ -64,7 +63,6 @@ class Result:
 
                     encoding = field_encodings[key]
 
-                    # If the encoding is None, we don't need to decode the value
                     if encoding is None:
                         fields[key] = value
                     else:
@@ -111,9 +109,6 @@ class Result:
         instance = cls.__new__(cls)
         if res is None:
             res = {}
-        # On RESP3 connections with decode_responses=False the server's map
-        # keys arrive as bytes, so normalise them to strings before lookup
-        # to keep behaviour consistent with decode_responses=True.
         res = {str_if_bytes(k): v for k, v in res.items()}
         instance.total = res.get("total_results", 0)
         instance.duration = duration

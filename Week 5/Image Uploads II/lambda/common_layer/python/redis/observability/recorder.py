@@ -8,7 +8,6 @@ Usage in Redis core code:
     from redis.observability.recorder import record_operation_duration
 
     start_time = time.monotonic()
-    # ... execute Redis command ...
     record_operation_duration(
         command_name='SET',
         duration_seconds=time.monotonic() - start_time,
@@ -40,7 +39,6 @@ if TYPE_CHECKING:
     from redis.multidb.database import SyncDatabase
     from redis.observability.config import OTelConfig
 
-# Global metrics collector instance (lazy-initialized)
 _metrics_collector: Optional[RedisMetricsCollector] = None
 
 CSC_ITEMS_REGISTRY_KEY = "csc_items"
@@ -60,7 +58,7 @@ def record_operation_duration(
     db_namespace: Optional[str] = None,
     error: Optional[Exception] = None,
     is_blocking: Optional[bool] = None,
-    batch_size: Optional[int] = None,  # noqa
+    batch_size: Optional[int] = None, 
     retry_attempts: Optional[int] = None,
 ) -> None:
     """
@@ -82,19 +80,16 @@ def record_operation_duration(
 
     Example:
         >>> start = time.monotonic()
-        >>> # ... execute command ...
+        >>>
         >>> record_operation_duration('SET', time.monotonic() - start, 'localhost', 6379, '0')
     """
     global _metrics_collector
 
-    # Fast path: if collector not initialized, observability is disabled
     if _metrics_collector is None:
-        # Try to initialize (only once)
         _metrics_collector = _get_or_create_collector()
         if _metrics_collector is None:
-            return  # Observability not enabled
+            return 
 
-    # Record the metric
     try:
         _metrics_collector.record_operation_duration(
             command_name=command_name,
@@ -109,7 +104,6 @@ def record_operation_duration(
             retry_attempts=retry_attempts,
         )
     except Exception:
-        # Don't let metric recording errors break Redis operations
         pass
 
 
@@ -126,12 +120,11 @@ def record_connection_create_time(
 
     Example:
         >>> start = time.monotonic()
-        >>> # ... create connection ...
+        >>>
         >>> record_connection_create_time('ConnectionPool<localhost:6379>', time.monotonic() - start)
     """
     global _metrics_collector
 
-    # Fast path: if collector not initialized, observability is disabled
     if _metrics_collector is None:
         _metrics_collector = _get_or_create_collector()
         if _metrics_collector is None:
@@ -160,18 +153,14 @@ def record_connection_count(
         counter: Number to add (positive) or subtract (negative)
 
     Example:
-        # New connection created (goes to IDLE first)
         >>> record_connection_count('pool_abc123', ConnectionState.IDLE, 1)
 
-        # Acquire from pool (transition)
         >>> record_connection_count('pool_abc123', ConnectionState.IDLE, -1)
         >>> record_connection_count('pool_abc123', ConnectionState.USED, 1)
 
-        # Release to pool (transition)
         >>> record_connection_count('pool_abc123', ConnectionState.USED, -1)
         >>> record_connection_count('pool_abc123', ConnectionState.IDLE, 1)
 
-        # Pool disconnect 5 idle connections
         >>> record_connection_count('pool_abc123', ConnectionState.IDLE, -5)
     """
     global _metrics_collector
@@ -238,7 +227,6 @@ def register_pools_connection_count(
         return
 
     try:
-        # Lazy import
         from opentelemetry.metrics import Observation
 
         def connection_count_callback():
@@ -296,7 +284,7 @@ def record_connection_wait_time(
 
     Example:
         >>> start = time.monotonic()
-        >>> # ... wait for connection from pool ...
+        >>>
         >>> record_connection_wait_time('ConnectionPool<localhost:6379>', time.monotonic() - start)
     """
     global _metrics_collector
@@ -473,7 +461,6 @@ def record_pubsub_message(
         if _metrics_collector is None:
             return
 
-    # Check if channel names should be hidden
     effective_channel = channel
     if channel is not None:
         config = _get_config()
@@ -499,7 +486,7 @@ def record_streaming_lag(
     lag_seconds: float,
     stream_name: Optional[str] = None,
     consumer_group: Optional[str] = None,
-    consumer_name: Optional[str] = None,  # noqa
+    consumer_name: Optional[str] = None, 
 ) -> None:
     """
     Record the lag of a streaming message.
@@ -517,7 +504,6 @@ def record_streaming_lag(
         if _metrics_collector is None:
             return
 
-    # Check if stream names should be hidden
     effective_stream_name = stream_name
     if stream_name is not None:
         config = _get_config()
@@ -542,7 +528,7 @@ def record_streaming_lag(
 def record_streaming_lag_from_response(
     response,
     consumer_group: Optional[str] = None,
-    consumer_name: Optional[str] = None,  # noqa
+    consumer_name: Optional[str] = None, 
 ) -> None:
     """
     Record streaming lag from XREAD/XREADGROUP response.
@@ -568,11 +554,9 @@ def record_streaming_lag_from_response(
     try:
         now = datetime.now().timestamp()
 
-        # Check if stream names should be hidden
         config = _get_config()
         hide_stream_names = config is not None and config.hide_stream_names
 
-        # RESP3 format: dict
         if isinstance(response, dict):
             for stream_name, stream_messages in response.items():
                 effective_stream_name = (
@@ -583,7 +567,6 @@ def record_streaming_lag_from_response(
                         message_id, _ = message
                         message_id = str_if_bytes(message_id)
                         timestamp, _ = message_id.split("-")
-                        # Ensure lag is non-negative (clock skew can cause negative values)
                         lag_seconds = max(0.0, now - int(timestamp) / 1000)
 
                         _metrics_collector.record_streaming_lag(
@@ -592,7 +575,6 @@ def record_streaming_lag_from_response(
                             consumer_group=consumer_group,
                         )
         else:
-            # RESP2 format: list
             for stream_entry in response:
                 stream_name = str_if_bytes(stream_entry[0])
                 effective_stream_name = None if hide_stream_names else stream_name
@@ -601,7 +583,6 @@ def record_streaming_lag_from_response(
                     message_id, _ = message
                     message_id = str_if_bytes(message_id)
                     timestamp, _ = message_id.split("-")
-                    # Ensure lag is non-negative (clock skew can cause negative values)
                     lag_seconds = max(0.0, now - int(timestamp) / 1000)
 
                     _metrics_collector.record_streaming_lag(
@@ -723,7 +704,6 @@ def register_csc_items_callback(
         if _metrics_collector is None:
             return
 
-    # Lazy import
     from opentelemetry.metrics import Observation
 
     def csc_items_callback():
@@ -834,7 +814,6 @@ def _get_or_create_collector() -> Optional[RedisMetricsCollector]:
         if manager is None or not manager.config.enabled_telemetry:
             return None
 
-        # Get meter from the global MeterProvider
         meter = manager.get_meter_provider().get_meter(
             RedisMetricsCollector.METER_NAME, RedisMetricsCollector.METER_VERSION
         )
@@ -842,10 +821,8 @@ def _get_or_create_collector() -> Optional[RedisMetricsCollector]:
         return RedisMetricsCollector(meter, manager.config)
 
     except ImportError:
-        # Observability module not available
         return None
     except Exception:
-        # Any other error - don't break Redis operations
         return None
 
 

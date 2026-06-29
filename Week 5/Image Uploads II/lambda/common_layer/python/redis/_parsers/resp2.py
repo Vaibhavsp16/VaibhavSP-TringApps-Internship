@@ -35,31 +35,20 @@ class _RESP2Parser(_RESPBase):
 
         byte, response = raw[:1], raw[1:]
 
-        # server returned an error
         if byte == b"-":
             response = response.decode("utf-8", errors="replace")
             error = self.parse_error(response)
-            # if the error is a ConnectionError, raise immediately so the user
-            # is notified
             if isinstance(error, ConnectionError):
                 raise error
-            # otherwise, we're dealing with a ResponseError that might belong
-            # inside a pipeline response. the connection's read_response()
-            # and/or the pipeline's execute() will raise this error if
-            # necessary, so just return the exception instance here.
             return error
-        # single value
         elif byte == b"+":
             pass
-        # int value
         elif byte == b":":
             return int(response)
-        # bulk response
         elif byte == b"$" and response == b"-1":
             return None
         elif byte == b"$":
             response = self._buffer.read(int(response), timeout=timeout)
-        # multi-bulk response
         elif byte == b"*" and response == b"-1":
             return None
         elif byte == b"*":
@@ -82,12 +71,10 @@ class _AsyncRESP2Parser(_AsyncRESPBase):
         if not self._connected:
             raise ConnectionError(SERVER_CLOSED_CONNECTION_ERROR)
         if self._chunks:
-            # augment parsing buffer with previously read data
             self._buffer += b"".join(self._chunks)
             self._chunks.clear()
         self._pos = 0
         response = await self._read_response(disable_decoding=disable_decoding)
-        # Successfully parsing a response allows us to clear our parsing buffer
         self._clear()
         return response
 
@@ -98,38 +85,27 @@ class _AsyncRESP2Parser(_AsyncRESPBase):
         response: Any
         byte, response = raw[:1], raw[1:]
 
-        # server returned an error
         if byte == b"-":
             response = response.decode("utf-8", errors="replace")
             error = self.parse_error(response)
-            # if the error is a ConnectionError, raise immediately so the user
-            # is notified
             if isinstance(error, ConnectionError):
-                self._clear()  # Successful parse
+                self._clear() 
                 raise error
-            # otherwise, we're dealing with a ResponseError that might belong
-            # inside a pipeline response. the connection's read_response()
-            # and/or the pipeline's execute() will raise this error if
-            # necessary, so just return the exception instance here.
             return error
-        # single value
         elif byte == b"+":
             pass
-        # int value
         elif byte == b":":
             return int(response)
-        # bulk response
         elif byte == b"$" and response == b"-1":
             return None
         elif byte == b"$":
             response = await self._read(int(response))
-        # multi-bulk response
         elif byte == b"*" and response == b"-1":
             return None
         elif byte == b"*":
             response = [
                 (await self._read_response(disable_decoding))
-                for _ in range(int(response))  # noqa
+                for _ in range(int(response)) 
             ]
         else:
             raise InvalidResponse(f"Protocol Error: {raw!r}")

@@ -7,9 +7,6 @@ data "aws_availability_zones" "available" {
   state = "available"
 }
 
-# ==========================================
-# 1. NETWORK INFRASTRUCTURE (VPC)
-# ==========================================
 
 resource "aws_vpc" "main" {
   cidr_block           = "10.0.0.0/16"
@@ -27,7 +24,6 @@ resource "aws_internet_gateway" "igw" {
   }
 }
 
-# Public Subnets (For NAT Gateway & Routing)
 resource "aws_subnet" "public_1" {
   vpc_id            = aws_vpc.main.id
   cidr_block        = "10.0.1.0/24"
@@ -46,7 +42,6 @@ resource "aws_subnet" "public_2" {
   }
 }
 
-# Private Subnets (For RDS, ElastiCache, and Lambdas)
 resource "aws_subnet" "private_1" {
   vpc_id            = aws_vpc.main.id
   cidr_block        = "10.0.3.0/24"
@@ -65,7 +60,6 @@ resource "aws_subnet" "private_2" {
   }
 }
 
-# NAT Gateway for Private Subnets outbound traffic
 resource "aws_eip" "nat_eip" {
   domain     = "vpc"
   depends_on = [aws_internet_gateway.igw]
@@ -79,7 +73,6 @@ resource "aws_nat_gateway" "nat" {
   }
 }
 
-# Routing tables
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
   route {
@@ -102,7 +95,6 @@ resource "aws_route_table" "private" {
   }
 }
 
-# Route table associations
 resource "aws_route_table_association" "public_1" {
   subnet_id      = aws_subnet.public_1.id
   route_table_id = aws_route_table.public.id
@@ -124,11 +116,7 @@ resource "aws_route_table_association" "private_2" {
 }
 
 
-# ==========================================
-# 2. SECURITY GROUPS
-# ==========================================
 
-# SG for Lambdas inside VPC
 resource "aws_security_group" "lambda_sg" {
   name        = "img-pipeline-lambda-sg-${var.environment}"
   description = "Allows Lambdas to send outbound traffic"
@@ -145,7 +133,6 @@ resource "aws_security_group" "lambda_sg" {
   }
 }
 
-# SG for RDS Proxy
 resource "aws_security_group" "rds_proxy_sg" {
   name        = "img-pipeline-rds-proxy-sg-${var.environment}"
   description = "Allows Lambdas to connect to RDS Proxy"
@@ -169,7 +156,6 @@ resource "aws_security_group" "rds_proxy_sg" {
   }
 }
 
-# SG for RDS MySQL Database
 resource "aws_security_group" "db_sg" {
   name        = "img-pipeline-db-sg-${var.environment}"
   description = "Allows traffic from RDS Proxy and Lambda security groups"
@@ -193,7 +179,6 @@ resource "aws_security_group" "db_sg" {
   }
 }
 
-# SG for Redis ElastiCache
 resource "aws_security_group" "redis_sg" {
   name        = "img-pipeline-redis-sg-${var.environment}"
   description = "Allows traffic from Lambda security groups"
@@ -218,9 +203,6 @@ resource "aws_security_group" "redis_sg" {
 }
 
 
-# ==========================================
-# 3. RDS DATABASE & SECURITY MANAGEMENT
-# ==========================================
 
 resource "random_password" "db_password" {
   length  = 16
@@ -246,10 +228,9 @@ resource "aws_db_instance" "db" {
   skip_final_snapshot    = true
 }
 
-# Database Credentials in Secrets Manager (For RDS Proxy Integration)
 resource "aws_secretsmanager_secret" "db_secret" {
   name_prefix             = "img-pipeline-db-secret-${var.environment}"
-  recovery_window_in_days = 0 # Force immediate delete on destroy
+  recovery_window_in_days = 0
 }
 
 resource "aws_secretsmanager_secret_version" "db_secret_ver" {
@@ -264,7 +245,6 @@ resource "aws_secretsmanager_secret_version" "db_secret_ver" {
   })
 }
 
-# RDS Proxy IAM Role
 resource "aws_iam_role" "rds_proxy_role" {
   name = "img-pipeline-rds-proxy-role-${var.environment}"
 
@@ -303,7 +283,6 @@ resource "aws_iam_role_policy_attachment" "rds_proxy_secrets" {
   policy_arn = aws_iam_policy.rds_proxy_secrets_policy.arn
 }
 
-# RDS Proxy Connection Pool
 resource "aws_db_proxy" "db_proxy" {
   name                   = "img-pipeline-db-proxy-${var.environment}"
   debug_logging          = false
@@ -338,9 +317,6 @@ resource "aws_db_proxy_target" "db_proxy_target" {
 }
 
 
-# ==========================================
-# 4. REDIS (ELASTICACHE CLUSTER)
-# ==========================================
 
 resource "aws_elasticache_subnet_group" "redis_subnet" {
   name       = "img-pipeline-redis-subnets-${var.environment}"
@@ -359,13 +335,10 @@ resource "aws_elasticache_cluster" "redis" {
 }
 
 
-# ==========================================
-# 5. STORAGE & PIPELINE BASICS
-# ==========================================
 
 resource "aws_s3_bucket" "upload_bucket" {
   bucket        = "${var.upload_bucket_prefix}-${data.aws_caller_identity.current.account_id}-${var.environment}"
-  force_destroy = true 
+  force_destroy = true
 }
 
 resource "aws_s3_bucket_public_access_block" "upload_bucket_block" {
@@ -394,7 +367,7 @@ resource "aws_sqs_queue" "metadata_queue" {
   delay_seconds             = 0
   max_message_size          = 262144
   message_retention_seconds = 86400
-  receive_wait_time_seconds = 10 
+  receive_wait_time_seconds = 10
 }
 
 resource "aws_sns_topic" "completion_topic" {
@@ -416,9 +389,6 @@ resource "aws_sns_topic_subscription" "email_sub" {
 }
 
 
-# ==========================================
-# 6. COGNITO IDENTITY MANAGEMENT
-# ==========================================
 
 resource "aws_cognito_user_pool" "user_pool" {
   name = "${var.user_pool_name}-${var.environment}"
@@ -470,17 +440,12 @@ resource "aws_cognito_user_pool_client" "user_pool_client" {
 }
 
 
-# ==========================================
-# 7. LAMBDA DEPENDENCIES LAYER PACKAGING
-# ==========================================
 
-# Automatically install pymysql and redis inside Layer workspace folder on Windows/Mac/Linux
 resource "null_resource" "install_layer_dependencies" {
   triggers = {
     requirements = filesha256("${path.module}/lambda/requirements.txt")
   }
   provisioner "local-exec" {
-    # Cross-platform Python download targeting Linux binaries for AWS Lambda
     command = "pip install -r ${path.module}/lambda/requirements.txt -t ${path.module}/lambda/common_layer/python --only-binary=:all: --platform manylinux2014_x86_64 --upgrade"
   }
 }
@@ -500,11 +465,7 @@ resource "aws_lambda_layer_version" "common_layer" {
 }
 
 
-# ==========================================
-# 8. LAMBDA FUNCTIONS (WITH VPC CONFIGS)
-# ==========================================
 
-# Base IAM Role for all VPC-enabled Lambdas
 resource "aws_iam_role" "lambda_vpc_role" {
   name = "img-pipeline-lambda-vpc-role-${var.environment}"
 
@@ -522,7 +483,6 @@ resource "aws_iam_role" "lambda_vpc_role" {
   })
 }
 
-# Attach basic execution and VPC attachment policies
 resource "aws_iam_role_policy_attachment" "lambda_basic" {
   role       = aws_iam_role.lambda_vpc_role.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
@@ -533,7 +493,6 @@ resource "aws_iam_role_policy_attachment" "lambda_vpc_access" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
 }
 
-# Specific AWS permissions policy for Lambda pipeline
 resource "aws_iam_policy" "lambda_aws_permissions" {
   name        = "img-pipeline-lambda-aws-permissions-${var.environment}"
   description = "Allows Lambdas to access S3, SQS, SNS, and Rekognition"
@@ -571,7 +530,6 @@ resource "aws_iam_role_policy_attachment" "lambda_permissions_attach" {
 }
 
 
-# --- Function 1: Pre-signed URL Generator ---
 data "archive_file" "presigned_zip" {
   type        = "zip"
   source_file = "${path.module}/lambda/presigned.py"
@@ -596,7 +554,7 @@ resource "aws_lambda_function" "presigned_lambda" {
   environment {
     variables = {
       UPLOAD_BUCKET = aws_s3_bucket.upload_bucket.id
-      DB_HOST       = aws_db_proxy.db_proxy.endpoint # Connect via proxy!
+      DB_HOST       = aws_db_proxy.db_proxy.endpoint
       DB_USER       = "admin"
       DB_PASSWORD   = random_password.db_password.result
       DB_NAME       = "image_pipeline"
@@ -605,7 +563,6 @@ resource "aws_lambda_function" "presigned_lambda" {
   }
 }
 
-# --- Function 2: Extractor Lambda ---
 data "archive_file" "extractor_zip" {
   type        = "zip"
   source_file = "${path.module}/lambda/extractor.py"
@@ -658,7 +615,6 @@ resource "aws_s3_bucket_notification" "bucket_notification" {
   depends_on = [aws_lambda_permission.allow_s3_bucket]
 }
 
-# --- Function 3: Processor Lambda ---
 data "archive_file" "processor_zip" {
   type        = "zip"
   source_file = "${path.module}/lambda/processor.py"
@@ -700,7 +656,6 @@ resource "aws_lambda_event_source_mapping" "sqs_processor_trigger" {
   enabled          = true
 }
 
-# --- Function 4: History Endpoint Lambda ---
 data "archive_file" "history_zip" {
   type        = "zip"
   source_file = "${path.module}/lambda/history.py"
@@ -734,7 +689,6 @@ resource "aws_lambda_function" "history_lambda" {
 }
 
 
-# --- Function 5: Database Janitor & Reconciliation Loop ---
 data "archive_file" "janitor_zip" {
   type        = "zip"
   source_file = "${path.module}/lambda/janitor.py"
@@ -769,7 +723,6 @@ resource "aws_lambda_function" "janitor_lambda" {
   }
 }
 
-# EventBridge Trigger to run Janitor Lambda every 5 minutes
 resource "aws_cloudwatch_event_rule" "janitor_rule" {
   name                = "img-pipeline-janitor-rule-${var.environment}"
   description         = "Trigger Database Janitor Lambda every 5 minutes"
@@ -791,9 +744,6 @@ resource "aws_lambda_permission" "allow_eventbridge_to_janitor" {
 }
 
 
-# ==========================================
-# 9. API GATEWAY ROUTING SETUP
-# ==========================================
 
 resource "aws_api_gateway_rest_api" "api" {
   name        = "img-pipeline-api-${var.environment}"
@@ -807,7 +757,6 @@ resource "aws_api_gateway_authorizer" "cognito_authorizer" {
   provider_arns = [aws_cognito_user_pool.user_pool.arn]
 }
 
-# --- Endpoint /upload-url ---
 resource "aws_api_gateway_resource" "upload_url_resource" {
   rest_api_id = aws_api_gateway_rest_api.api.id
   parent_id   = aws_api_gateway_rest_api.api.root_resource_id
@@ -872,7 +821,6 @@ resource "aws_api_gateway_integration_response" "upload_url_options_integration_
   }
 }
 
-# --- Endpoint /history ---
 resource "aws_api_gateway_resource" "history_resource" {
   rest_api_id = aws_api_gateway_rest_api.api.id
   parent_id   = aws_api_gateway_rest_api.api.root_resource_id
@@ -937,7 +885,6 @@ resource "aws_api_gateway_integration_response" "history_options_integration_res
   }
 }
 
-# --- Deployment & Invocation permissions ---
 resource "aws_lambda_permission" "apigw_presigned_lambda" {
   statement_id  = "AllowExecutionFromAPIGateway"
   action        = "lambda:InvokeFunction"
@@ -990,9 +937,6 @@ resource "aws_api_gateway_stage" "api_stage" {
 }
 
 
-# ==========================================
-# 10. FRONTEND STATIC HOSTING & CORS
-# ==========================================
 
 resource "aws_s3_bucket_cors_configuration" "upload_cors" {
   bucket = aws_s3_bucket.upload_bucket.id
@@ -1000,8 +944,8 @@ resource "aws_s3_bucket_cors_configuration" "upload_cors" {
   cors_rule {
     allowed_headers = ["*"]
     allowed_methods = ["PUT", "POST", "GET", "HEAD"]
-    allowed_origins = ["*"] 
-    expose_headers  = ["ETag", "x-amz-meta-uploader-email", "x-amz-meta-image-id"]
+    allowed_origins = ["*"]
+    expose_headers  = ["ETag", "x-amz-meta-uploader-email", "x-amz-meta-uploader-sub", "x-amz-meta-image-id"]
     max_age_seconds = 3000
   }
 }
@@ -1102,49 +1046,4 @@ resource "aws_s3_object" "frontend_index" {
   })
   content_type  = "text/html"
   cache_control = "no-cache, no-store, must-revalidate"
-}
-
-# ==========================================
-# 11. CLOUDWATCH ALARMS (DELIVERABLE 3)
-# ==========================================
-
-# Alarm 1: Monitor Processor Lambda Errors
-resource "aws_cloudwatch_metric_alarm" "processor_errors_alarm" {
-  alarm_name          = "img-pipeline-processor-errors-${var.environment}"
-  comparison_operator = "GreaterThanOrEqualToThreshold"
-  evaluation_periods  = 1
-  metric_name         = "Errors"
-  namespace           = "AWS/Lambda"
-  period              = 300 # 5 minutes
-  statistic           = "Sum"
-  threshold           = 1
-  alarm_description   = "This alarm triggers when the image processor Lambda function fails."
-  treat_missing_data  = "notBreaching"
-
-  dimensions = {
-    FunctionName = aws_lambda_function.processor_lambda.function_name
-  }
-
-  alarm_actions = [aws_sns_topic.completion_topic.arn]
-}
-
-# Alarm 2: Monitor API Gateway 5XX Error Rates
-resource "aws_cloudwatch_metric_alarm" "api_5xx_errors_alarm" {
-  alarm_name          = "img-pipeline-api-5xx-errors-${var.environment}"
-  comparison_operator = "GreaterThanOrEqualToThreshold"
-  evaluation_periods  = 1
-  metric_name         = "5XXError"
-  namespace           = "AWS/ApiGateway"
-  period              = 300 # 5 minutes
-  statistic           = "Sum"
-  threshold           = 1
-  alarm_description   = "This alarm triggers when the API Gateway returns 5XX server errors."
-  treat_missing_data  = "notBreaching"
-
-  dimensions = {
-    ApiName = aws_api_gateway_rest_api.api.name
-    Stage   = aws_api_gateway_stage.api_stage.stage_name
-  }
-
-  alarm_actions = [aws_sns_topic.completion_topic.arn]
 }

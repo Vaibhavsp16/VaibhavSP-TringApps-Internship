@@ -143,28 +143,20 @@ class TokenManager:
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            # Run loop in a separate thread to unblock main thread.
             loop = asyncio.new_event_loop()
 
-            # Use threading.Event to signal when loop is ready
             loop_ready = threading.Event()
 
             def start_loop():
-                # This runs in the background thread. First, bind the event loop to
-                # this thread, then signal that the loop is ready so the calling
-                # thread can safely schedule work (via call_soon_threadsafe) before
-                # we block in run_forever().
                 asyncio.set_event_loop(loop)
-                loop_ready.set()  # Signal that loop is ready for cross-thread use
+                loop_ready.set() 
                 loop.run_forever()
 
             thread = threading.Thread(target=start_loop, daemon=True)
             thread.start()
 
-            # Wait for the loop to be ready before scheduling
             loop_ready.wait()
 
-        # Use thread-safe Event for cross-thread synchronization
         init_done = threading.Event()
 
         def renew_with_callback():
@@ -173,11 +165,9 @@ class TokenManager:
             finally:
                 init_done.set()
 
-        # Schedule using call_soon_threadsafe for thread-safe scheduling
         self._init_timer = loop.call_soon_threadsafe(renew_with_callback)
         logger.info("Token manager started")
 
-        # Blocks using thread-safe Event
         init_done.wait()
         return self.stop
 
@@ -193,7 +183,6 @@ class TokenManager:
         loop = asyncio.get_running_loop()
         init_event = asyncio.Event()
 
-        # Wraps the async callback with async wrapper to schedule with loop.call_later()
         wrapped = _async_to_sync_wrapper(
             loop, self._renew_token_async, skip_initial, init_event
         )
@@ -367,7 +356,6 @@ def _async_to_sync_wrapper(loop, coro_func, *args, **kwargs):
     """
 
     def wrapped():
-        # Schedule the coroutine in the event loop
         asyncio.ensure_future(coro_func(*args, **kwargs), loop=loop)
 
     return wrapped

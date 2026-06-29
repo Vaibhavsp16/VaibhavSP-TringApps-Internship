@@ -171,8 +171,6 @@ class MultiDbConfig:
         databases = WeightedList()
 
         for database_config in self.databases_config:
-            # The retry object is not used in the lower level clients, so we can safely remove it.
-            # We rely on command_retry in terms of global retries.
             database_config.client_kwargs.update(
                 {"retry": Retry(retries=0, backoff=NoBackoff())}
             )

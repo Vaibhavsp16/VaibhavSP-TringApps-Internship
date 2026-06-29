@@ -1,9 +1,6 @@
 from ..helpers import nativestr
 from .utils import list_to_dict
 
-# Mapping from RESP3 camelCase field names to the legacy snake_case
-# attribute names. Used so callers can fetch the same value with either
-# spelling regardless of which wire format produced the ``TSInfo``.
 _FIELD_ALIASES = {
     "sourceKey": "source_key",
     "chunkCount": "chunk_count",
@@ -78,12 +75,10 @@ class TSInfo:
         https://redis.io/docs/latest/develop/data-types/timeseries/configuration/#duplicate_policy
         """
         if isinstance(args, dict):
-            # RESP3 wire: response is a native map.
             response = args
             self.rules = response.get("rules") or {}
             self.labels = response.get("labels") or {}
         else:
-            # RESP2 wire: flat list of alternating key-value pairs.
             response = dict(zip(map(nativestr, args[::2]), args[1::2]))
             self.rules = response.get("rules")
             self.labels = list_to_dict(response.get("labels"))
@@ -98,7 +93,7 @@ class TSInfo:
             self.max_samples_per_chunk = response["maxSamplesPerChunk"]
             self.chunk_size = (
                 self.max_samples_per_chunk * 16
-            )  # backward compatible changes
+            ) 
         if "chunkSize" in response:
             self.chunk_size = response["chunkSize"]
         if "duplicatePolicy" in response:

@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Optional, Union
 from redis.utils import experimental
 
 try:
-    from typing import Self  # Py 3.11+
+    from typing import Self 
 except ImportError:
     from typing_extensions import Self
 

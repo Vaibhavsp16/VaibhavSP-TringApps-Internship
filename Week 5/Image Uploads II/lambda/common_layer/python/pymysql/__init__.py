@@ -47,18 +47,14 @@ from .times import (
     TimestampFromTicks,
 )
 
-# PyMySQL version.
-# Used by setuptools and connection_attrs
 VERSION = (1, 2, 0, "final")
 VERSION_STRING = "1.2.0"
 
-### for mysqlclient compatibility
-### Django checks mysqlclient version.
 version_info = (2, 2, 8, "final", 1)
 __version__ = "2.2.8"
 
 
-def get_client_info():  # for MySQLdb compatibility
+def get_client_info(): 
     return __version__
 
 
@@ -70,13 +66,12 @@ def install_as_MySQLdb():
     sys.modules["MySQLdb"] = sys.modules["pymysql"]
 
 
-# end of mysqlclient compatibility code
 
 threadsafety = 1
 apilevel = "2.0"
 paramstyle = "pyformat"
 
-from . import connections  # noqa: E402
+from . import connections 
 
 
 class DBAPISet(frozenset):
@@ -130,7 +125,7 @@ def Binary(x):
 
 
 def thread_safe():
-    return True  # match MySQLdb.thread_safe()
+    return True 
 
 
 Connect = connect = Connection = connections.Connection

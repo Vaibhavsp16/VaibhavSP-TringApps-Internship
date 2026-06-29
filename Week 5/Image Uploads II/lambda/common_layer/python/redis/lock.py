@@ -24,9 +24,6 @@ class Lock:
     lua_extend = None
     lua_reacquire = None
 
-    # KEYS[1] - lock name
-    # ARGV[1] - token
-    # return 1 if the lock was released, otherwise 0
     LUA_RELEASE_SCRIPT = """
         local token = redis.call('get', KEYS[1])
         if not token or token ~= ARGV[1] then
@@ -36,12 +33,6 @@ class Lock:
         return 1
     """
 
-    # KEYS[1] - lock name
-    # ARGV[1] - token
-    # ARGV[2] - additional milliseconds
-    # ARGV[3] - "0" if the additional time should be added to the lock's
-    #           existing ttl or "1" if the existing ttl should be replaced
-    # return 1 if the locks time was extended, otherwise 0
     LUA_EXTEND_SCRIPT = """
         local token = redis.call('get', KEYS[1])
         if not token or token ~= ARGV[1] then
@@ -63,10 +54,6 @@ class Lock:
         return 1
     """
 
-    # KEYS[1] - lock name
-    # ARGV[1] - token
-    # ARGV[2] - milliseconds
-    # return 1 if the locks time was reacquired, otherwise 0
     LUA_REACQUIRE_SCRIPT = """
         local token = redis.call('get', KEYS[1])
         if not token or token ~= ARGV[1] then
@@ -236,7 +223,6 @@ class Lock:
 
     def do_acquire(self, token: str) -> bool:
         if self.timeout:
-            # convert to milliseconds
             timeout = int(self.timeout * 1000)
         else:
             timeout = None
@@ -255,8 +241,6 @@ class Lock:
         Returns True if this key is locked by this lock, otherwise False.
         """
         stored_token = self.redis.get(self.name)
-        # need to always compare bytes to bytes
-        # TODO: this can be simplified when the context manager is finished
         if stored_token and not isinstance(stored_token, bytes):
             encoder = self.redis.get_encoder()
             stored_token = encoder.encode(stored_token)

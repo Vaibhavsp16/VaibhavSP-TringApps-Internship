@@ -33,7 +33,7 @@ class CacheKey:
 
     command: str
     redis_keys: tuple
-    redis_args: tuple = ()  # Additional arguments for the Redis command; affects cache key uniqueness.
+    redis_args: tuple = () 
 
 
 class CacheEntry:
@@ -218,7 +218,6 @@ class DefaultCache(CacheInterface):
         keys_to_delete = []
 
         for redis_key in redis_keys:
-            # Prepare both versions for lookup
             candidates = [redis_key]
             if isinstance(redis_key, str):
                 candidates.append(redis_key.encode("utf-8"))
@@ -226,7 +225,7 @@ class DefaultCache(CacheInterface):
                 try:
                     candidates.append(redis_key.decode("utf-8"))
                 except UnicodeDecodeError:
-                    pass  # Non-UTF-8 bytes, skip str version
+                    pass 
 
             for cache_key in self._cache:
                 if any(candidate in cache_key.redis_keys for candidate in candidates):
@@ -278,7 +277,6 @@ class CacheProxy(CacheInterface):
         is_set = self._cache.set(entry)
 
         if self.config.is_exceeds_max_size(self.size):
-            # Lazy import to avoid circular dependency
             from redis.observability.recorder import record_csc_eviction
 
             record_csc_eviction(

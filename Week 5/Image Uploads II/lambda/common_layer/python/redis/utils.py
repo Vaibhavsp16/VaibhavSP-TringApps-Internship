@@ -15,9 +15,8 @@ if TYPE_CHECKING:
     from redis.client import Redis
 
 try:
-    import hiredis  # noqa
+    import hiredis 
 
-    # Only support Hiredis >= 3.0:
     hiredis_version = hiredis.__version__.split(".")
     HIREDIS_AVAILABLE = int(hiredis_version[0]) > 3 or (
         int(hiredis_version[0]) == 3 and int(hiredis_version[1]) >= 2
@@ -28,14 +27,14 @@ except ImportError:
     HIREDIS_AVAILABLE = False
 
 try:
-    import ssl  # noqa
+    import ssl 
 
     SSL_AVAILABLE = True
 except ImportError:
     SSL_AVAILABLE = False
 
 try:
-    import cryptography  # noqa
+    import cryptography 
 
     CRYPTOGRAPHY_AVAILABLE = True
 except ImportError:
@@ -43,9 +42,6 @@ except ImportError:
 
 from importlib import metadata
 
-# Shared marker for omitted arguments, especially where None is a valid
-# explicit value. Import this object from redis.utils instead of creating local
-# sentinels, and compare it by identity only (`is` / `is not`).
 SENTINEL = object()
 
 
@@ -149,7 +145,6 @@ def deprecated_function(reason="", version="", name=None):
 
     def decorator(func):
         if inspect.iscoroutinefunction(func):
-            # Create async wrapper for async functions
             @wraps(func)
             async def async_wrapper(*args, **kwargs):
                 warn_deprecated(name or func.__name__, reason, version, stacklevel=3)
@@ -157,7 +152,6 @@ def deprecated_function(reason="", version="", name=None):
 
             return async_wrapper
         else:
-            # Create regular wrapper for sync functions
             @wraps(func)
             def wrapper(*args, **kwargs):
                 warn_deprecated(name or func.__name__, reason, version, stacklevel=3)
@@ -275,11 +269,6 @@ def _set_info_logger():
         logger.addHandler(handler)
 
 
-#: Default RESP protocol version used on the wire when the user does not
-#: supply an explicit ``protocol`` to the client / connection / pool. Lives
-#: in ``redis.utils`` so both ``redis.connection`` (for the HELLO handshake)
-#: and ``check_protocol_version`` (for protocol-gated features) can read it
-#: without a circular import.
 DEFAULT_RESP_VERSION = 3
 
 
@@ -449,7 +438,6 @@ def experimental_method() -> Callable[[C], C]:
 
     def decorator(func: C) -> C:
         if inspect.iscoroutinefunction(func):
-            # Create async wrapper for async functions
             @wraps(func)
             async def async_wrapper(*args, **kwargs):
                 warn_experimental(func.__name__, stacklevel=2)
@@ -457,7 +445,6 @@ def experimental_method() -> Callable[[C], C]:
 
             return async_wrapper
         else:
-            # Create regular wrapper for sync functions
             @wraps(func)
             def wrapper(*args, **kwargs):
                 warn_experimental(func.__name__, stacklevel=2)

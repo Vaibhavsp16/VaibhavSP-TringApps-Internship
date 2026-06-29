@@ -80,7 +80,7 @@ class OutOfMemoryError(ResponseError):
       * Redis maxmemory-policy=noeviction
       * Redis maxmemory-policy=volatile* and there are no evictable keys
 
-    For more information see `Memory optimization in Redis <https://redis.io/docs/management/optimization/memory-optimization/#memory-allocation>`_. # noqa
+    For more information see `Memory optimization in Redis <https://redis.io/docs/management/optimization/memory-optimization/#memory-allocation>`_.
     """
 
     pass
@@ -107,8 +107,6 @@ class ModuleError(ResponseError):
 class LockError(RedisError, ValueError):
     "Errors acquiring or releasing a lock"
 
-    # NOTE: For backwards compatibility, this class derives from ValueError.
-    # This was originally chosen to behave like threading.Lock.
 
     def __init__(self, message=None, lock_name=None):
         super().__init__(message)

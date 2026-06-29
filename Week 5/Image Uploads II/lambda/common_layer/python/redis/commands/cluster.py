@@ -58,19 +58,14 @@ from .redismodules import AsyncRedisModuleCommands, RedisModuleCommands
 if TYPE_CHECKING:
     from redis.asyncio.cluster import TargetNodesT
 
-# Not complete, but covers the major ones
-# https://redis.io/commands
 READ_COMMANDS = frozenset(
     [
-        # Bit Operations
         "BITCOUNT",
         "BITFIELD_RO",
         "BITPOS",
-        # Scripting
         "EVAL_RO",
         "EVALSHA_RO",
         "FCALL_RO",
-        # Key Operations
         "DBSIZE",
         "DIGEST",
         "DUMP",
@@ -83,19 +78,16 @@ READ_COMMANDS = frozenset(
         "RANDOMKEY",
         "TTL",
         "TYPE",
-        # String Operations
         "GET",
         "GETBIT",
         "GETRANGE",
         "MGET",
         "STRLEN",
         "LCS",
-        # Geo Operations
         "GEODIST",
         "GEOHASH",
         "GEOPOS",
         "GEOSEARCH",
-        # Hash Operations
         "HEXISTS",
         "HGET",
         "HGETALL",
@@ -110,12 +102,10 @@ READ_COMMANDS = frozenset(
         "HTTL",
         "HPTTL",
         "HSCAN",
-        # List Operations
         "LINDEX",
         "LPOS",
         "LLEN",
         "LRANGE",
-        # Set Operations
         "SCARD",
         "SDIFF",
         "SINTER",
@@ -126,7 +116,6 @@ READ_COMMANDS = frozenset(
         "SRANDMEMBER",
         "SUNION",
         "SSCAN",
-        # Sorted Set Operations
         "ZCARD",
         "ZCOUNT",
         "ZDIFF",
@@ -146,13 +135,11 @@ READ_COMMANDS = frozenset(
         "ZSCAN",
         "ZSCORE",
         "ZUNION",
-        # Stream Operations
         "XLEN",
         "XPENDING",
         "XRANGE",
         "XREAD",
         "XREVRANGE",
-        # JSON Module
         "JSON.ARRINDEX",
         "JSON.ARRLEN",
         "JSON.GET",
@@ -162,7 +149,6 @@ READ_COMMANDS = frozenset(
         "JSON.RESP",
         "JSON.STRLEN",
         "JSON.TYPE",
-        # RediSearch Module
         "FT.EXPLAIN",
         "FT.INFO",
         "FT.PROFILE",
@@ -239,16 +225,12 @@ class ClusterMultiKeyCommands(ClusterCommandsProtocol):
         For more information see https://redis.io/commands/mget
         """
 
-        # Concatenate all keys into a list
         keys = list_or_args(keys, args)
 
-        # Split keys into slots
         slots_to_keys = self._partition_keys_by_slot(keys)
 
-        # Execute commands using a pipeline
         res = self._execute_pipeline_by_slot("MGET", slots_to_keys)
 
-        # Reorder keys in the order the user provided & return
         return self._reorder_keys_by_command(keys, slots_to_keys, res)
 
     def mset_nonatomic(self, mapping: Mapping[AnyKeyT, EncodableT]) -> List[bool]:
@@ -264,10 +246,8 @@ class ClusterMultiKeyCommands(ClusterCommandsProtocol):
         For more information see https://redis.io/commands/mset
         """
 
-        # Partition the keys by slot
         slots_to_pairs = self._partition_pairs_by_slot(mapping)
 
-        # Execute commands using a pipeline & return list of replies
         return self._execute_pipeline_by_slot("MSET", slots_to_pairs)
 
     def _split_command_across_slots(self, command: str, *keys: KeyT) -> int:
@@ -276,10 +256,8 @@ class ClusterMultiKeyCommands(ClusterCommandsProtocol):
         of each slot. Returns the sum of the return values.
         """
 
-        # Partition the keys by slot
         slots_to_keys = self._partition_keys_by_slot(keys)
 
-        # Sum up the reply from each command
         return sum(self._execute_pipeline_by_slot(command, slots_to_keys))
 
     @overload
@@ -375,16 +353,12 @@ class AsyncClusterMultiKeyCommands(ClusterMultiKeyCommands):
         For more information see https://redis.io/commands/mget
         """
 
-        # Concatenate all keys into a list
         keys = list_or_args(keys, args)
 
-        # Split keys into slots
         slots_to_keys = self._partition_keys_by_slot(keys)
 
-        # Execute commands using a pipeline
         res = await self._execute_pipeline_by_slot("MGET", slots_to_keys)
 
-        # Reorder keys in the order the user provided & return
         return self._reorder_keys_by_command(keys, slots_to_keys, res)
 
     async def mset_nonatomic(self, mapping: Mapping[AnyKeyT, EncodableT]) -> List[bool]:
@@ -400,10 +374,8 @@ class AsyncClusterMultiKeyCommands(ClusterMultiKeyCommands):
         For more information see https://redis.io/commands/mset
         """
 
-        # Partition the keys by slot
         slots_to_pairs = self._partition_pairs_by_slot(mapping)
 
-        # Execute commands using a pipeline & return list of replies
         return await self._execute_pipeline_by_slot("MSET", slots_to_pairs)
 
     async def _split_command_across_slots(self, command: str, *keys: KeyT) -> int:
@@ -412,10 +384,8 @@ class AsyncClusterMultiKeyCommands(ClusterMultiKeyCommands):
         of each slot. Returns the sum of the return values.
         """
 
-        # Partition the keys by slot
         slots_to_keys = self._partition_keys_by_slot(keys)
 
-        # Sum up the reply from each command
         return sum(await self._execute_pipeline_by_slot(command, slots_to_keys))
 
     async def _execute_pipeline_by_slot(
@@ -1033,8 +1003,6 @@ class ClusterManagementCommands(ManagementCommands):
         For more information see https://redis.io/commands/readonly
         """
         if target_nodes == "replicas" or target_nodes == "all":
-            # read_from_replicas will only be enabled if the READONLY command
-            # is sent to all replicas
             self.read_from_replicas = True
         return self.execute_command("READONLY", target_nodes=target_nodes)
 
@@ -1046,7 +1014,6 @@ class ClusterManagementCommands(ManagementCommands):
 
         For more information see https://redis.io/commands/readwrite
         """
-        # Reset read from replicas flag
         self.read_from_replicas = False
         return self.execute_command("READWRITE", target_nodes=target_nodes)
 
@@ -1404,16 +1371,13 @@ class ClusterDataAccessCommands(DataAccessCommands):
         _type: str | None = None,
         **kwargs,
     ) -> Iterator:
-        # Do the first query with cursor=0 for all nodes
         cursors, data = self.scan(match=match, count=count, _type=_type, **kwargs)
         yield from data
 
         cursors = {name: cursor for name, cursor in cursors.items() if cursor != 0}
         if cursors:
-            # Get nodes by name
             nodes = {name: self.get_node(node_name=name) for name in cursors.keys()}
 
-            # Iterate over each node till its cursor is 0
             kwargs.pop("target_nodes", None)
             while cursors:
                 for name, cursor in cursors.items():
@@ -1450,17 +1414,14 @@ class AsyncClusterDataAccessCommands(
         _type: str | None = None,
         **kwargs,
     ) -> AsyncIterator:
-        # Do the first query with cursor=0 for all nodes
         cursors, data = await self.scan(match=match, count=count, _type=_type, **kwargs)
         for value in data:
             yield value
 
         cursors = {name: cursor for name, cursor in cursors.items() if cursor != 0}
         if cursors:
-            # Get nodes by name
             nodes = {name: self.get_node(node_name=name) for name in cursors.keys()}
 
-            # Iterate over each node till its cursor is 0
             kwargs.pop("target_nodes", None)
             while cursors:
                 for name, cursor in cursors.items():

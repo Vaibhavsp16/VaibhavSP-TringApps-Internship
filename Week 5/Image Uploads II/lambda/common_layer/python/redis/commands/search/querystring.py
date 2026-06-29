@@ -2,7 +2,6 @@ def tags(*t):
     """
     Indicate that the values should be matched to a tag field
 
-    ### Parameters
 
     - **t**: Tags to search for
     """
@@ -141,7 +140,6 @@ class Node:
         """
         Create a node
 
-        ### Parameters
 
         - **children**: One or more sub-conditions. These can be additional
             `intersect`, `disjunct`, `union`, `optional`, or any other `Node`
@@ -160,7 +158,6 @@ class Node:
             - list of either a string or a value
 
 
-        ### Examples
 
         Field `num` should be between 1 and 10
         ```
@@ -206,7 +203,7 @@ class Node:
         return [s]
 
     @classmethod
-    def to_node(cls, obj):  # noqa
+    def to_node(cls, obj): 
         if isinstance(obj, Node):
             return obj
         return BaseNode(obj)

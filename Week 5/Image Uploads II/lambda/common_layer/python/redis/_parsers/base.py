@@ -47,13 +47,10 @@ MODULE_EXPORTS_DATA_TYPES_ERROR = (
     "exports one or more module-side data "
     "types, can't unload"
 )
-# user send an AUTH cmd to a server without authorization configured
 NO_AUTH_SET_ERROR = {
-    # Redis >= 6.0
     "AUTH <password> called without any password "
     "configured for the default user. Are you sure "
     "your configuration is correct?": AuthenticationError,
-    # Redis < 6.0
     "Client sent AUTH, but no password is set": AuthenticationError,
 }
 
@@ -69,12 +66,8 @@ class BaseParser(ABC):
         "ERR": {
             "max number of clients reached": ConnectionError,
             "invalid password": AuthenticationError,
-            # some Redis server versions report invalid command syntax
-            # in lowercase
             "wrong number of arguments "
             "for 'auth' command": AuthenticationWrongNumberOfArgsError,
-            # some Redis server versions report invalid command syntax
-            # in uppercase
             "wrong number of arguments "
             "for 'AUTH' command": AuthenticationWrongNumberOfArgsError,
             MODULE_LOAD_ERROR: ModuleError,
@@ -153,8 +146,6 @@ class _RESPBase(BaseParser):
         self.encoder = None
 
     def can_read(self, timeout: float = 0) -> bool:
-        # TODO: Rename this API; it detects pending data or dirty/closed
-        # connection state, not only whether application data can be read.
         if self._buffer is None:
             return False
         return self._buffer.can_read(timeout)
@@ -178,8 +169,6 @@ class AsyncBaseParser(BaseParser):
 
     @abstractmethod
     async def can_read(self) -> bool:
-        # TODO: Rename this API; it detects pending data or dirty/closed
-        # connection state, not only whether application data can be read.
         pass
 
     async def read_response(
@@ -193,26 +182,14 @@ class MaintenanceNotificationsParser:
 
     @staticmethod
     def parse_oss_maintenance_start_msg(response):
-        # Expected message format is:
-        # SMIGRATING <seq_number> <slot, range1-range2,...>
         id = response[1]
         slots = safe_str(response[2])
         return OSSNodeMigratingNotification(id, slots)
 
     @staticmethod
     def parse_oss_maintenance_completed_msg(response):
-        # Expected message format is:
-        # SMIGRATED <seq_number> [[<src_host:port> <dest_host:port> <slot_range>], ...]
         id = response[1]
         nodes_to_slots_mapping_data = response[2]
-        # Build the nodes_to_slots_mapping dict structure:
-        # {
-        #     "src_host:port": [
-        #         {"dest_host:port": "slot_range"},
-        #         ...
-        #     ],
-        #     ...
-        # }
         nodes_to_slots_mapping = {}
         for src_node, dest_node, slots in nodes_to_slots_mapping_data:
             src_node_str = safe_str(src_node)
@@ -227,26 +204,17 @@ class MaintenanceNotificationsParser:
 
     @staticmethod
     def parse_maintenance_start_msg(response, notification_type):
-        # Expected message format is: <notification_type> <seq_number> <time>
-        # Examples:
-        # MIGRATING 1 10
-        # FAILING_OVER 2 20
         id = response[1]
         ttl = response[2]
         return notification_type(id, ttl)
 
     @staticmethod
     def parse_maintenance_completed_msg(response, notification_type):
-        # Expected message format is: <notification_type> <seq_number>
-        # Examples:
-        # MIGRATED 1
-        # FAILED_OVER 2
         id = response[1]
         return notification_type(id)
 
     @staticmethod
     def parse_moving_msg(response):
-        # Expected message format is: MOVING <seq_number> <time> <endpoint>
         id = response[1]
         ttl = response[2]
         if response[3] is None:
@@ -534,15 +502,10 @@ class _AsyncRESPBase(AsyncBaseParser):
         return await self.can_read()
 
     async def can_read(self) -> bool:
-        # TODO: Rename this API; it detects pending data or dirty/closed
-        # connection state, not only whether application data can be read.
         if not self._connected:
             raise OSError("Buffer is closed.")
         if self._buffer:
             return True
-        # asyncio.StreamReader has no public non-destructive API for checking
-        # buffered bytes. Preserve dirty-connection detection for the Python
-        # parser and fail loudly if the private buffer API changes.
         return bool(self._stream._buffer) or self._stream.at_eof()
 
     async def _read(self, length: int) -> bytes:

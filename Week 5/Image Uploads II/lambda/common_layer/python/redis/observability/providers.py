@@ -15,7 +15,6 @@ initializing observability:
     provider = MeterProvider(...)
     metrics.set_meter_provider(provider)
 
-    # Then initialize redis-py observability
     otel = get_observability_instance()
     otel.init(OTelConfig(enable_metrics=True))
 """
@@ -27,7 +26,6 @@ from redis.observability.config import OTelConfig
 
 logger = logging.getLogger(__name__)
 
-# Optional imports - OTel SDK may not be installed
 try:
     from opentelemetry.sdk.metrics import MeterProvider
 
@@ -36,7 +34,6 @@ except ImportError:
     OTEL_AVAILABLE = False
     MeterProvider = None
 
-# Global singleton instance
 _global_provider_manager: Optional["OTelProviderManager"] = None
 
 
@@ -71,7 +68,6 @@ class OTelProviderManager:
         if not self.config.is_enabled():
             return None
 
-        # Lazy import - only import OTel when metrics are enabled
         try:
             from opentelemetry import metrics
             from opentelemetry.metrics import NoOpMeterProvider
@@ -81,11 +77,9 @@ class OTelProviderManager:
                 "  pip install opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp-proto-http"
             )
 
-        # Get the global MeterProvider
         if self._meter_provider is None:
             self._meter_provider = metrics.get_meter_provider()
 
-            # Check if it's a real provider (not NoOp)
             if isinstance(self._meter_provider, NoOpMeterProvider):
                 raise RuntimeError(
                     "Metrics are enabled but no global MeterProvider is configured.\n"
@@ -153,7 +147,6 @@ class OTelProviderManager:
         if self._meter_provider is None:
             return True
 
-        # NoOpMeterProvider doesn't have force_flush method
         if not hasattr(self._meter_provider, "force_flush"):
             logger.debug("MeterProvider does not support force_flush, skipping")
             return True
@@ -178,7 +171,6 @@ class OTelProviderManager:
         return f"OTelProviderManager(config={self.config})"
 
 
-# Singleton instance class
 
 
 class ObservabilityInstance:
@@ -192,16 +184,16 @@ class ObservabilityInstance:
     Example:
         >>> from redis.observability.config import OTelConfig
         >>>
-        >>> # Get singleton instance
+        >>>
         >>> otel = get_observability_instance()
         >>>
-        >>> # Initialize once at app startup
+        >>>
         >>> otel.init(OTelConfig())
         >>>
-        >>> # All Redis clients now automatically collect metrics
+        >>>
         >>> import redis
         >>> r = redis.Redis(host='localhost', port=6379)
-        >>> r.set('key', 'value')  # Metrics collected automatically
+        >>> r.set('key', 'value') 
     """
 
     def __init__(self):
@@ -287,7 +279,7 @@ class ObservabilityInstance:
 
         Example:
             >>> otel = get_observability_instance()
-            >>> # At application shutdown
+            >>>
             >>> otel.shutdown()
         """
         if self._provider_manager is None:
@@ -315,9 +307,9 @@ class ObservabilityInstance:
 
         Example:
             >>> otel = get_observability_instance()
-            >>> # Execute some Redis commands
+            >>>
             >>> r.set('key', 'value')
-            >>> # Force flush metrics immediately
+            >>>
             >>> otel.force_flush()
         """
         if self._provider_manager is None:
@@ -327,7 +319,6 @@ class ObservabilityInstance:
         return self._provider_manager.force_flush(timeout_millis)
 
 
-# Global singleton instance
 _observability_instance: Optional[ObservabilityInstance] = None
 
 

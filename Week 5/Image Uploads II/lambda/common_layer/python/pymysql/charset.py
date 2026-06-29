@@ -1,4 +1,3 @@
-# Internal use only. Do not use directly.
 
 MBLENGTH = {8: 1, 33: 3, 88: 2, 91: 2}
 

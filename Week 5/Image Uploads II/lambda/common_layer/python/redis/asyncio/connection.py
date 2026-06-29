@@ -50,8 +50,6 @@ from ..driver_info import DriverInfo, resolve_driver_info
 from ..event import AsyncAfterConnectionReleasedEvent, EventDispatcher
 from ..utils import deprecated_args, format_error_message
 
-# the functionality is available in 3.11.x but has a major issue before
-# 3.11.3. See https://github.com/redis/redis-py/issues/2633
 if sys.version_info >= (3, 11, 3):
     from asyncio import timeout as async_timeout
 else:
@@ -218,7 +216,6 @@ class AbstractConnection:
         self.db = db
         self.client_name = client_name
 
-        # Handle driver_info: if provided, use it; otherwise create from lib_name/lib_version.
         self.driver_info = resolve_driver_info(driver_info, lib_name, lib_version)
 
         self.credential_provider = credential_provider
@@ -240,9 +237,7 @@ class AbstractConnection:
             if not retry:
                 self.retry = Retry(NoBackoff(), 1)
             else:
-                # deep-copy the Retry object as it is mutable
                 self.retry = copy.deepcopy(retry)
-            # Update the retry's supported errors with the specified errors
             self.retry.update_supported_errors(retry_on_error)
         else:
             self.retry = Retry(NoBackoff(), 0)
@@ -270,7 +265,6 @@ class AbstractConnection:
         self.protocol = p
         self.legacy_responses = legacy_responses
         if parser_class != _AsyncHiredisParser:
-            # The Python parsers are protocol-specific; hiredis supports both.
             if self.protocol == 3 and parser_class == _AsyncRESP2Parser:
                 parser_class = _AsyncRESP3Parser
             elif self.protocol == 2 and parser_class == _AsyncRESP3Parser:
@@ -278,9 +272,6 @@ class AbstractConnection:
         self.set_parser(parser_class)
 
     def __del__(self, _warnings: Any = warnings):
-        # For some reason, the individual streams don't get properly garbage
-        # collected and therefore produce no resource warnings.  We add one
-        # here, in the same style as those from the stdlib.
         if getattr(self, "_writer", None):
             _warnings.warn(
                 f"unclosed Connection {self!r}", ResourceWarning, source=self
@@ -290,7 +281,6 @@ class AbstractConnection:
                 asyncio.get_running_loop()
                 self._close()
             except RuntimeError:
-                # No actions been taken if pool already closed.
                 pass
 
     def _close(self):
@@ -346,8 +336,6 @@ class AbstractConnection:
 
     async def connect(self):
         """Connects to the Redis server if not already connected"""
-        # try once the socket connect with the handshake, retry the whole
-        # connect/handshake flow based on retry policy
         await self.retry.call_with_retry(
             lambda: self.connect_check_health(
                 check_health=True, retry_socket_connect=False
@@ -363,7 +351,6 @@ class AbstractConnection:
     ):
         if self.is_connected:
             return
-        # Track actual retry attempts for error reporting
         actual_retry_attempts = 0
 
         def failure_callback(error, failure_count):
@@ -381,7 +368,7 @@ class AbstractConnection:
             else:
                 await self._connect()
         except asyncio.CancelledError:
-            raise  # in 3.7 and earlier, this is an Exception, not BaseException
+            raise 
         except (socket.timeout, asyncio.TimeoutError):
             e = TimeoutError("Timeout connecting to server")
             await record_error_count(
@@ -411,23 +398,17 @@ class AbstractConnection:
 
         try:
             if not self.redis_connect_func:
-                # Use the default on_connect function
                 await self.on_connect_check_health(check_health=check_health)
             else:
-                # Use the passed function redis_connect_func
                 (
                     await self.redis_connect_func(self)
                     if asyncio.iscoroutinefunction(self.redis_connect_func)
                     else self.redis_connect_func(self)
                 )
         except RedisError:
-            # clean up after any error in on_connect
             await self.disconnect()
             raise
 
-        # run any user callbacks. right now the only internal callback
-        # is for pubsub channel/pattern resubscription
-        # first, remove any dead weakrefs
         self._connect_callbacks = [ref for ref in self._connect_callbacks if ref()]
         for ref in self._connect_callbacks:
             callback = ref()
@@ -467,7 +448,6 @@ class AbstractConnection:
         parser = self._parser
 
         auth_args = None
-        # if credential provider or username and/or password are set, authenticate
         if self.credential_provider or (self.username or self.password):
             cred_provider = (
                 self.credential_provider
@@ -475,18 +455,13 @@ class AbstractConnection:
             )
             auth_args = await cred_provider.get_credentials_async()
 
-            # if resp version is specified and we have auth args,
-            # we need to send them via HELLO
         if auth_args and self.protocol not in [2, "2"]:
             if isinstance(self._parser, _AsyncRESP2Parser):
                 self.set_parser(_AsyncRESP3Parser)
-                # update cluster exception classes
                 self._parser.EXCEPTION_CLASSES = parser.EXCEPTION_CLASSES
                 self._parser.on_connect(self)
             if len(auth_args) == 1:
                 auth_args = ["default", auth_args[0]]
-            # avoid checking health here -- PING will fail if we try
-            # to check the health prior to the AUTH
             await self.send_command(
                 "HELLO", self.protocol, "AUTH", *auth_args, check_health=False
             )
@@ -495,39 +470,26 @@ class AbstractConnection:
                 "proto"
             ) != int(self.protocol):
                 raise ConnectionError("Invalid RESP version")
-        # avoid checking health here -- PING will fail if we try
-        # to check the health prior to the AUTH
         elif auth_args:
             await self.send_command("AUTH", *auth_args, check_health=False)
 
             try:
                 auth_response = await self.read_response()
             except AuthenticationWrongNumberOfArgsError:
-                # a username and password were specified but the Redis
-                # server seems to be < 6.0.0 which expects a single password
-                # arg. retry auth with just the password.
-                # https://github.com/andymccurdy/redis-py/issues/1274
                 await self.send_command("AUTH", auth_args[-1], check_health=False)
                 auth_response = await self.read_response()
 
             if str_if_bytes(auth_response) != "OK":
                 raise AuthenticationError("Invalid Username or Password")
 
-        # if resp version is specified, switch to it
         elif self.protocol not in [2, "2"]:
             if isinstance(self._parser, _AsyncRESP2Parser):
                 self.set_parser(_AsyncRESP3Parser)
-                # update cluster exception classes
                 self._parser.EXCEPTION_CLASSES = parser.EXCEPTION_CLASSES
                 self._parser.on_connect(self)
             await self.send_command("HELLO", self.protocol, check_health=check_health)
             response = await self.read_response()
-            # if response.get(b"proto") != self.protocol and response.get(
-            #     "proto"
-            # ) != self.protocol:
-            #     raise ConnectionError("Invalid RESP version")
 
-        # if a client_name is given, set it
         if self.client_name:
             await self.send_command(
                 "CLIENT",
@@ -538,7 +500,6 @@ class AbstractConnection:
             if str_if_bytes(await self.read_response()) != "OK":
                 raise ConnectionError("Error setting client name")
 
-        # Set the library name and version from driver_info, pipeline for lower startup latency
         lib_name_sent = False
         lib_version_sent = False
 
@@ -562,11 +523,9 @@ class AbstractConnection:
             )
             lib_version_sent = True
 
-        # if a database is specified, switch to it. Also pipeline this
         if self.db:
             await self.send_command("SELECT", self.db, check_health=check_health)
 
-        # read responses from pipeline
         for _ in range(sum([lib_name_sent, lib_version_sent])):
             try:
                 await self.read_response()
@@ -585,10 +544,6 @@ class AbstractConnection:
         health_check_failed: bool = False,
     ) -> None:
         """Disconnects from the Redis server"""
-        # On Python 3.13+, asyncio.timeout() raises RuntimeError when called
-        # outside a running Task (e.g. during GC finalization or event-loop
-        # callbacks).  In that context we fall back to a synchronous close.
-        # See https://github.com/redis/redis-py/issues/3856
         if asyncio.current_task() is None:
             self._parser.on_disconnect()
             self.reset_should_reconnect()
@@ -598,16 +553,13 @@ class AbstractConnection:
         try:
             async with async_timeout(self.socket_connect_timeout):
                 self._parser.on_disconnect()
-                # Reset the reconnect flag
                 self.reset_should_reconnect()
                 if not self.is_connected:
                     return
                 try:
-                    self._writer.close()  # type: ignore[union-attr]
-                    # wait for close to finish, except when handling errors and
-                    # forcefully disconnecting.
+                    self._writer.close() 
                     if not nowait:
-                        await self._writer.wait_closed()  # type: ignore[union-attr]
+                        await self._writer.wait_closed() 
                 except OSError:
                     pass
                 finally:
@@ -703,10 +655,6 @@ class AbstractConnection:
                 f"Error {err_no} while writing to socket. {errmsg}."
             ) from e
         except BaseException:
-            # BaseExceptions can be raised when a socket send operation is not
-            # finished, e.g. due to a timeout.  Ideally, a caller could then re-try
-            # to send un-sent data. However, the send_packed_command() API
-            # does not support it so there is no point in keeping the connection open.
             await self.disconnect(nowait=True)
             raise
 
@@ -730,8 +678,6 @@ class AbstractConnection:
 
     async def can_read(self) -> bool:
         """Check the socket to see if there's data loaded in the buffer."""
-        # TODO: Rename this API; it detects pending data or dirty/closed
-        # connection state, not only whether application data can be read.
         try:
             return await self._parser.can_read()
         except OSError as e:
@@ -766,12 +712,6 @@ class AbstractConnection:
         release. Until then, callers that need an indefinitely blocking
         read pass ``math.inf`` explicitly.
         """
-        # TODO(next-major): drop the math.inf branch. Use SENTINEL as the
-        # default for ``timeout`` and treat ``timeout is None`` as the
-        # "no timeout" signal (matching the PubSub docstring contract).
-        # Match only positive infinity here. ``-math.inf`` is not a valid
-        # "block forever" signal and historically behaved as an already-
-        # expired timeout; preserve that.
         if timeout == math.inf:
             read_timeout = None
         else:
@@ -798,9 +738,7 @@ class AbstractConnection:
                 )
         except asyncio.TimeoutError:
             if timeout is not None:
-                # user requested timeout, return None. Operation can be retried
                 return None
-            # it was a self.socket_timeout error.
             if disconnect_on_error:
                 await self.disconnect(nowait=True)
             raise TimeoutError(f"Timeout reading from {host_error}")
@@ -809,9 +747,6 @@ class AbstractConnection:
                 await self.disconnect(nowait=True)
             raise ConnectionError(f"Error while reading from {host_error} : {e.args}")
         except BaseException:
-            # Also by default close in case of BaseException.  A lot of code
-            # relies on this behaviour when doing Command/Response pairs.
-            # See #1128.
             if disconnect_on_error:
                 await self.disconnect(nowait=True)
             raise
@@ -827,11 +762,6 @@ class AbstractConnection:
     def pack_command(self, *args: EncodableT) -> List[bytes]:
         """Pack a series of arguments into the Redis protocol"""
         output = []
-        # the client might have included 1 or more literal arguments in
-        # the command name, e.g., 'CONFIG GET'. The Redis server expects these
-        # arguments to be sent separately, so split the first argument
-        # manually. These arguments should be bytestrings so that they are
-        # not encoded.
         assert not isinstance(args[0], float)
         if isinstance(args[0], str):
             args = tuple(args[0].encode().split()) + args[1:]
@@ -842,8 +772,6 @@ class AbstractConnection:
 
         buffer_cutoff = self._buffer_cutoff
         for arg in map(self.encoder.encode, args):
-            # to avoid large string mallocs, chunk the command into the
-            # output list if we're sending large values or memoryviews
             arg_length = len(arg)
             if (
                 len(buff) > buffer_cutoff
@@ -980,15 +908,12 @@ class Connection(AbstractConnection):
         if sock:
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
             try:
-                # TCP_KEEPALIVE
                 if self.socket_keepalive:
                     sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
                     for k, v in self.socket_keepalive_options.items():
                         sock.setsockopt(socket.SOL_TCP, k, v)
 
             except (OSError, TypeError):
-                # `socket_keepalive_options` might contain invalid options
-                # causing an error. Do not leave the connection open.
                 writer.close()
                 raise
 
@@ -1119,7 +1044,7 @@ class RedisSSLContext:
         if cert_reqs is None:
             cert_reqs = ssl.CERT_NONE
         elif isinstance(cert_reqs, str):
-            CERT_REQS = {  # noqa: N806
+            CERT_REQS = { 
                 "none": ssl.CERT_NONE,
                 "optional": ssl.CERT_OPTIONAL,
                 "required": ssl.CERT_REQUIRED,
@@ -1208,8 +1133,6 @@ def to_bool(value) -> Optional[bool]:
 
 
 def parse_ssl_verify_flags(value):
-    # flags are passed in as a string representation of a list,
-    # e.g. VERIFY_X509_STRICT, VERIFY_X509_PARTIAL_CHAIN
     verify_flags_str = value.replace("[", "").replace("]", "")
 
     verify_flags = []
@@ -1273,7 +1196,6 @@ def parse_url(url: str) -> ConnectKwargs:
     if parsed.password:
         kwargs["password"] = unquote(parsed.password)
 
-    # We only support redis://, rediss:// and unix:// schemes.
     if parsed.scheme == "unix":
         if parsed.path:
             kwargs["path"] = unquote(parsed.path)
@@ -1285,8 +1207,6 @@ def parse_url(url: str) -> ConnectKwargs:
         if parsed.port:
             kwargs["port"] = int(parsed.port)
 
-        # If there's a path argument, use it as the db argument if a
-        # querystring value wasn't specified
         if parsed.path and "db" not in kwargs:
             try:
                 kwargs["db"] = int(unquote(parsed.path).replace("/", ""))
@@ -1444,7 +1364,6 @@ class ConnectionPool(ConnectionPoolInterface):
         if self._event_dispatcher is None:
             self._event_dispatcher = EventDispatcher()
 
-    # Keys that should be redacted in __repr__ to avoid exposing sensitive information
     SENSITIVE_REPR_KEYS = frozenset(
         {
             "password",
@@ -1476,8 +1395,6 @@ class ConnectionPool(ConnectionPoolInterface):
         return self.connection_kwargs.get("protocol", None)
 
     def reset(self):
-        # Record metrics for connections being removed before clearing
-        # (only if attributes exist - they won't during __init__)
         if hasattr(self, "_available_connections") and hasattr(
             self, "_in_use_connections"
         ):
@@ -1485,7 +1402,6 @@ class ConnectionPool(ConnectionPoolInterface):
             in_use_count = len(self._in_use_connections)
             if idle_count > 0 or in_use_count > 0:
                 pool_name = get_pool_name(self)
-                # Note: Using sync version since reset() is sync
                 from redis.observability.recorder import (
                     record_connection_count as sync_record_connection_count,
                 )
@@ -1517,7 +1433,6 @@ class ConnectionPool(ConnectionPoolInterface):
             in_use_count = len(self._in_use_connections)
             if idle_count > 0 or in_use_count > 0:
                 pool_name = get_pool_name(self)
-                # Note: Using sync version since __del__ is sync
                 from redis.observability.recorder import (
                     record_connection_count as sync_record_connection_count,
                 )
@@ -1551,7 +1466,6 @@ class ConnectionPool(ConnectionPoolInterface):
     )
     async def get_connection(self, command_name=None, *keys, **options):
         """Get a connected connection from the pool"""
-        # Track connection count before to detect if a new connection is created
         async with self._lock:
             connections_before = len(self._available_connections) + len(
                 self._in_use_connections
@@ -1563,18 +1477,14 @@ class ConnectionPool(ConnectionPoolInterface):
             )
             is_created = connections_after > connections_before
 
-        # Record state transition for observability
-        # This ensures counters stay balanced if ensure_connection() fails and release() is called
         pool_name = get_pool_name(self)
         if is_created:
-            # New connection created and acquired: just USED +1
             await record_connection_count(
                 pool_name=pool_name,
                 connection_state=ConnectionState.USED,
                 counter=1,
             )
         else:
-            # Existing connection acquired from pool: IDLE -> USED
             await record_connection_count(
                 pool_name=pool_name,
                 connection_state=ConnectionState.IDLE,
@@ -1586,7 +1496,6 @@ class ConnectionPool(ConnectionPoolInterface):
                 counter=1,
             )
 
-        # We now perform the connection check outside of the lock.
         try:
             await self.ensure_connection(connection)
 
@@ -1623,17 +1532,11 @@ class ConnectionPool(ConnectionPoolInterface):
 
     def make_connection(self):
         """Create a new connection.  Can be overridden by child classes."""
-        # Note: We don't record IDLE here because async uses a sync make_connection
-        # but async record_connection_count. The recording is handled in get_connection.
         return self.connection_class(**self.connection_kwargs)
 
     async def ensure_connection(self, connection: AbstractConnection):
         """Ensure that the connection object is connected and valid"""
         await connection.connect()
-        # connections that the pool provides should be ready to send
-        # a command. if not, the connection was either returned to the
-        # pool before all data has been read or the socket has been
-        # closed. either way, reconnect and verify everything is good.
         try:
             if await connection.can_read():
                 raise ConnectionError("Connection has data") from None
@@ -1645,8 +1548,6 @@ class ConnectionPool(ConnectionPoolInterface):
 
     async def release(self, connection: AbstractConnection):
         """Releases the connection back to the pool"""
-        # Connections should always be returned to the correct pool,
-        # not doing so is an error that will cause an exception here.
         self._in_use_connections.remove(connection)
 
         if connection.should_reconnect():
@@ -1657,7 +1558,6 @@ class ConnectionPool(ConnectionPoolInterface):
             AsyncAfterConnectionReleasedEvent(connection)
         )
 
-        # Record state transition: USED -> IDLE
         pool_name = get_pool_name(self)
         await record_connection_count(
             pool_name=pool_name,
@@ -1782,11 +1682,11 @@ class BlockingConnectionPool(ConnectionPool):
     Use ``timeout`` to tell it either how many seconds to wait for a connection
     to become available, or to block forever:
 
-        >>> # Block forever.
+        >>>
         >>> pool = BlockingConnectionPool(timeout=None)
 
-        >>> # Raise a ``ConnectionError`` after five seconds if a connection is
-        >>> # not available.
+        >>>
+        >>>
         >>> pool = BlockingConnectionPool(timeout=5)
     """
 
@@ -1795,7 +1695,7 @@ class BlockingConnectionPool(ConnectionPool):
         max_connections: int = 50,
         timeout: Optional[float] = 20,
         connection_class: Type[AbstractConnection] = Connection,
-        queue_class: Type[asyncio.Queue] = asyncio.LifoQueue,  # deprecated
+        queue_class: Type[asyncio.Queue] = asyncio.LifoQueue, 
         **connection_kwargs,
     ):
         super().__init__(
@@ -1813,14 +1713,12 @@ class BlockingConnectionPool(ConnectionPool):
     )
     async def get_connection(self, command_name=None, *keys, **options):
         """Gets a connection from the pool, blocking until one is available"""
-        # Start timing for wait time observability
         start_time_acquired = time.monotonic()
 
         try:
             async with self._condition:
                 async with async_timeout(self.timeout):
                     await self._condition.wait_for(self.can_get_connection)
-                    # Track connection count before to detect if a new connection is created
                     connections_before = len(self._available_connections) + len(
                         self._in_use_connections
                     )
@@ -1833,7 +1731,6 @@ class BlockingConnectionPool(ConnectionPool):
         except asyncio.TimeoutError as err:
             raise ConnectionError("No connection available.") from err
 
-        # We now perform the connection check outside of the lock.
         try:
             await self.ensure_connection(connection)
 

@@ -95,7 +95,6 @@ if TYPE_CHECKING:
 SYM_EMPTY = b""
 EMPTY_RESPONSE = "EMPTY_RESPONSE"
 
-# some responses (ie. dump) are binary, and just meant to never be decoded
 NEVER_DECODE = "NEVER_DECODE"
 
 
@@ -159,7 +158,6 @@ class Redis(RedisModuleCommands, CoreCommands, SentinelCommands):
     It is not safe to pass PubSub or Pipeline objects between threads.
     """
 
-    # Type discrimination marker for @overload self-type pattern
     _is_async_client: Literal[False] = False
 
     @classmethod
@@ -371,7 +369,6 @@ class Redis(RedisModuleCommands, CoreCommands, SentinelCommands):
             if not retry_on_error:
                 retry_on_error = []
 
-            # Handle driver_info: if provided, use it; otherwise create from lib_name/lib_version.
             computed_driver_info = resolve_driver_info(
                 driver_info, lib_name, lib_version
             )
@@ -396,7 +393,6 @@ class Redis(RedisModuleCommands, CoreCommands, SentinelCommands):
                 "protocol": protocol,
                 "legacy_responses": legacy_responses,
             }
-            # based on input, setup appropriate connection args
             if unix_socket_path is not None:
                 if (
                     maint_notifications_config
@@ -416,7 +412,6 @@ class Redis(RedisModuleCommands, CoreCommands, SentinelCommands):
                     }
                 )
             else:
-                # TCP specific options
                 kwargs.update(
                     {
                         "host": host,
@@ -742,9 +737,6 @@ class Redis(RedisModuleCommands, CoreCommands, SentinelCommands):
             pass
 
     def close(self) -> None:
-        # In case a connection property does not yet exist
-        # (due to a crash earlier in the Redis() constructor), return
-        # immediately as there is nothing to clean-up.
         if not hasattr(self, "connection"):
             return
 
@@ -793,7 +785,6 @@ class Redis(RedisModuleCommands, CoreCommands, SentinelCommands):
 
         conn.disconnect()
 
-    # COMMAND EXECUTION AND PROTOCOL PARSING
     def execute_command(self, *args, **options):
         return self._execute_command(*args, **options)
 
@@ -803,9 +794,7 @@ class Redis(RedisModuleCommands, CoreCommands, SentinelCommands):
         command_name = args[0]
         conn = self.connection or pool.get_connection()
 
-        # Start timing for observability
         start_time = time.monotonic()
-        # Track actual retry attempts for error reporting
         actual_retry_attempts = [0]
 
         def failure_callback(error, failure_count):
@@ -870,7 +859,6 @@ class Redis(RedisModuleCommands, CoreCommands, SentinelCommands):
         if EMPTY_RESPONSE in options:
             options.pop(EMPTY_RESPONSE)
 
-        # Remove keys entry, it needs only for cache.
         options.pop("keys", None)
 
         if command_name in self.response_callbacks:
@@ -920,9 +908,6 @@ class Monitor:
         m = self.monitor_re.match(command_data)
         db_id, client_info, command = m.groups()
         command = " ".join(self.command_re.findall(command))
-        # Redis escapes double quotes because each piece of the command
-        # string is surrounded by double quotes. We don't have that
-        # requirement so remove the escaping and leave the quote.
         command = command.replace('\\"', '"')
 
         if client_info == "lua":
@@ -939,7 +924,6 @@ class Monitor:
                 client_port = ""
                 client_type = "unknown"
             else:
-                # use rsplit as ipv6 addresses contain colons
                 client_address, client_port = client_info.rsplit(":", 1)
                 client_type = "tcp"
         return {
@@ -958,7 +942,6 @@ class Monitor:
 
     def _start_monitor(self):
         self.connection.send_command("MONITOR")
-        # check that monitor returns 'OK', but don't return it to user
         response = self.connection.read_response()
 
         if not bool_ok(response):
@@ -992,8 +975,6 @@ class PubSub:
         self.ignore_subscribe_messages = ignore_subscribe_messages
         self.connection = None
         self.subscribed_event = threading.Event()
-        # we need to know the encoding options for this connection in order
-        # to lookup channel and pattern names for callback handlers.
         self.encoder = encoder
         self.push_handler_func = push_handler_func
         if event_dispatcher is None:
@@ -1021,9 +1002,6 @@ class PubSub:
 
     def __del__(self) -> None:
         try:
-            # if this object went out of scope prior to shutting down
-            # subscriptions, close the connection manually before
-            # returning it to the connection pool
             self.reset()
         except Exception:
             pass
@@ -1047,8 +1025,6 @@ class PubSub:
         self.reset()
 
     def _resubscribe(self, subscribed, subscribe_fn) -> None:
-        # Replay handler-backed subscriptions as positional Subscription objects
-        # so binary names never need to be decoded into keyword argument keys.
         subscriptions = pubsub_subscription_args(subscribed)
         if subscriptions:
             subscribe_fn(*subscriptions)
@@ -1076,14 +1052,9 @@ class PubSub:
     def execute_command(self, *args):
         """Execute a publish/subscribe command"""
 
-        # NOTE: don't parse the response in this function -- it could pull a
-        # legitimate message off the stack if the connection is already
-        # subscribed to one or more channels
 
         if self.connection is None:
             self.connection = self.connection_pool.get_connection()
-            # register a callback that re-subscribes to any channels we
-            # were listening to when we were disconnected
             self.connection.register_connect_callback(self.on_connect)
             if self.push_handler_func is not None:
                 self.connection._parser.set_pubsub_push_handler(self.push_handler_func)
@@ -1150,7 +1121,7 @@ class PubSub:
         Connect manually upon disconnection. If the Redis server is down,
         this will fail and raise a ConnectionError as desired.
         After reconnection, the ``on_connect`` callback should have been
-        called by the # connection to resubscribe us to any channels and
+        called by the
         patterns we were previously listening to
         """
 
@@ -1162,9 +1133,7 @@ class PubSub:
         else:
             command_name = None
 
-        # Start timing for observability
         start_time = time.monotonic()
-        # Track actual retry attempts for error reporting
         actual_retry_attempts = [0]
 
         def failure_callback(error, failure_count):
@@ -1226,18 +1195,14 @@ class PubSub:
             block=False when a timeout is provided, and block=True when timeout=None.
 
         Example:
-            # Block indefinitely (timeout is ignored)
             response = pubsub.parse_response(block=True, timeout=0.1)
 
-            # Non-blocking with 0.1 second timeout
             response = pubsub.parse_response(block=False, timeout=0.1)
 
-            # Non-blocking, return immediately
             response = pubsub.parse_response(block=False, timeout=0)
 
-            # Recommended: use get_message() instead
-            msg = pubsub.get_message(timeout=0.1)  # automatically sets block=False
-            msg = pubsub.get_message(timeout=None)  # automatically sets block=True
+            msg = pubsub.get_message(timeout=0.1) 
+            msg = pubsub.get_message(timeout=None) 
         """
         conn = self.connection
         if conn is None:
@@ -1255,10 +1220,6 @@ class PubSub:
                 read_timeout = timeout
             else:
                 conn.connect()
-                # Block indefinitely waiting for a pubsub message. timeout=None
-                # makes the socket layer call sock.settimeout(None) for this read
-                # (and restore the original socket_timeout afterwards), so the
-                # configured socket_timeout does not abort the read.
                 read_timeout = None
             return conn.read_response(
                 disconnect_on_error=False, push_request=True, timeout=read_timeout
@@ -1267,7 +1228,6 @@ class PubSub:
         response = self._execute(conn, try_read)
 
         if self.is_health_check_response(response):
-            # ignore the health check message as user might not expect it
             self.health_check_response_counter -= 1
             return None
         return response
@@ -1282,16 +1242,16 @@ class PubSub:
             return (
                 response
                 in [
-                    self.health_check_response,  # If there is a subscription
-                    self.HEALTH_CHECK_MESSAGE,  # If there are no subscriptions and decode_responses=True
+                    self.health_check_response, 
+                    self.HEALTH_CHECK_MESSAGE, 
                 ]
             )
         else:
             return (
                 response
                 in [
-                    self.health_check_response,  # If there is a subscription
-                    self.health_check_response_b,  # If there isn't a subscription and decode_responses=False
+                    self.health_check_response, 
+                    self.health_check_response_b, 
                 ]
             )
 
@@ -1332,15 +1292,10 @@ class PubSub:
         """
         new_patterns = parse_pubsub_subscriptions(args, kwargs)
         ret_val = self.execute_command("PSUBSCRIBE", *new_patterns.keys())
-        # update the patterns dict AFTER we send the command. we don't want to
-        # subscribe twice to these patterns, once for the command and again
-        # for the reconnection.
         new_patterns = self._normalize_keys(new_patterns)
         self.patterns.update(new_patterns)
         if not self.subscribed:
-            # Set the subscribed_event flag to True
             self.subscribed_event.set()
-            # Clear the health check counter
             self.health_check_response_counter = 0
         self.pending_unsubscribe_patterns.difference_update(new_patterns)
         return ret_val
@@ -1373,15 +1328,10 @@ class PubSub:
         """
         new_channels = parse_pubsub_subscriptions(args, kwargs)
         ret_val = self.execute_command("SUBSCRIBE", *new_channels.keys())
-        # update the channels dict AFTER we send the command. we don't want to
-        # subscribe twice to these channels, once for the command and again
-        # for the reconnection.
         new_channels = self._normalize_keys(new_channels)
         self.channels.update(new_channels)
         if not self.subscribed:
-            # Set the subscribed_event flag to True
             self.subscribed_event.set()
-            # Clear the health check counter
             self.health_check_response_counter = 0
         self.pending_unsubscribe_channels.difference_update(new_channels)
         return ret_val
@@ -1417,15 +1367,10 @@ class PubSub:
         """
         new_s_channels = parse_pubsub_subscriptions(args, kwargs)
         ret_val = self.execute_command("SSUBSCRIBE", *new_s_channels.keys())
-        # update the s_channels dict AFTER we send the command. we don't want to
-        # subscribe twice to these channels, once for the command and again
-        # for the reconnection.
         new_s_channels = self._normalize_keys(new_s_channels)
         self.shard_channels.update(new_s_channels)
         if not self.subscribed:
-            # Set the subscribed_event flag to True
             self.subscribed_event.set()
-            # Clear the health check counter
             self.health_check_response_counter = 0
         self.pending_unsubscribe_shard_channels.difference_update(new_s_channels)
         return ret_val
@@ -1461,17 +1406,11 @@ class PubSub:
         number, or None, to wait indefinitely.
         """
         if not self.subscribed:
-            # Wait for subscription
             start_time = time.monotonic()
             if self.subscribed_event.wait(timeout) is True:
-                # The connection was subscribed during the timeout time frame.
-                # The timeout should be adjusted based on the time spent
-                # waiting for the subscription
                 time_spent = time.monotonic() - start_time
                 timeout = max(0.0, timeout - time_spent)
             else:
-                # The connection isn't subscribed to any channels or patterns,
-                # so no messages are available
                 return None
 
         response = self.parse_response(block=(timeout is None), timeout=timeout)
@@ -1540,7 +1479,6 @@ class PubSub:
                 sharded=True,
             )
 
-        # if this is an unsubscribe message, remove it from memory
         if message_type in self.UNSUBSCRIBE_MESSAGE_TYPES:
             if message_type == "punsubscribe":
                 pattern = response[1]
@@ -1558,12 +1496,9 @@ class PubSub:
                     self.pending_unsubscribe_channels.remove(channel)
                     self.channels.pop(channel, None)
             if not self.channels and not self.patterns and not self.shard_channels:
-                # There are no subscriptions anymore, set subscribed_event flag
-                # to false
                 self.subscribed_event.clear()
 
         if message_type in self.PUBLISH_MESSAGE_TYPES:
-            # if there's a message handler, invoke it
             if message_type == "pmessage":
                 handler = self.patterns.get(message["pattern"], None)
             elif message_type == "smessage":
@@ -1574,8 +1509,6 @@ class PubSub:
                 handler(message)
                 return None
         elif message_type != "pong":
-            # this is a subscribe/unsubscribe message. ignore if we don't
-            # want them
             if ignore_subscribe_messages or self.ignore_subscribe_messages:
                 return None
 
@@ -1655,9 +1588,6 @@ class PubSubWorkerThread(threading.Thread):
         pubsub.close()
 
     def stop(self) -> None:
-        # trip the flag so the run loop exits. the run loop will
-        # close the pubsub connection, which disconnects the socket
-        # and returns the connection to the pool.
         self._running.clear()
 
 
@@ -1722,23 +1652,15 @@ class Pipeline(Redis):
     def reset(self) -> None:
         self.command_stack = []
         self.scripts = set()
-        # make sure to reset the connection state in the event that we were
-        # watching something
         if self.watching and self.connection:
             try:
-                # call this manually since our unwatch or
-                # immediate_execute_command methods can call reset()
                 self.connection.send_command("UNWATCH")
                 self.connection.read_response()
             except ConnectionError:
-                # disconnect will also remove any previous WATCHes
                 self.connection.disconnect()
-        # clean up the other instance attributes
         self.watching = False
         self.explicit_transaction = False
 
-        # we can safely return the connection to the pool here since we're
-        # sure we're no longer WATCHing anything
         if self.connection:
             self.connection_pool.release(self.connection)
             self.connection = None
@@ -1795,9 +1717,6 @@ class Pipeline(Redis):
             )
         conn.disconnect()
 
-        # if we were already watching a variable, the watch is no longer
-        # valid since this connection has died. raise a WatchError, which
-        # indicates the user should retry this transaction.
         if self.watching:
             self.reset()
             raise WatchError(
@@ -1813,14 +1732,11 @@ class Pipeline(Redis):
         """
         command_name = args[0]
         conn = self.connection
-        # if this is the first call, we need a connection
         if not conn:
             conn = self.connection_pool.get_connection()
             self.connection = conn
 
-        # Start timing for observability
         start_time = time.monotonic()
-        # Track actual retry attempts for error reporting
         actual_retry_attempts = [0]
 
         def failure_callback(error, failure_count):
@@ -1886,16 +1802,11 @@ class Pipeline(Redis):
         connection.send_packed_command(all_cmds)
         errors = []
 
-        # parse off the response for MULTI
-        # NOTE: we need to handle ResponseErrors here and continue
-        # so that we read all the additional command messages from
-        # the socket
         try:
             self.parse_response(connection, "_")
         except ResponseError as e:
             errors.append((0, e))
 
-        # and all the other commands
         for i, command in enumerate(commands):
             if EMPTY_RESPONSE in command[1]:
                 errors.append((i, command[1][EMPTY_RESPONSE]))
@@ -1906,7 +1817,6 @@ class Pipeline(Redis):
                     self.annotate_exception(e, i + 1, command[0])
                     errors.append((i, e))
 
-        # parse the EXEC.
         try:
             response = self.parse_response(connection, "_")
         except ExecAbortError:
@@ -1914,13 +1824,11 @@ class Pipeline(Redis):
                 raise errors[0][1]
             raise
 
-        # EXEC clears any watched keys
         self.watching = False
 
         if response is None:
             raise WatchError("Watched variable changed.")
 
-        # put any parse errors into the response
         for i, e in errors:
             response.insert(i, e)
 
@@ -1930,16 +1838,13 @@ class Pipeline(Redis):
                 "Wrong number of response items from pipeline execution"
             )
 
-        # find any errors in the response and raise if necessary
         if raise_on_error:
             self.raise_first_error(commands, response)
 
-        # We have to run response callbacks manually
         data = []
         for r, cmd in zip(response, commands):
             if not isinstance(r, Exception):
                 args, options = cmd
-                # Remove keys entry, it needs only for cache.
                 options.pop("keys", None)
                 command_name = args[0]
                 if command_name in self.response_callbacks:
@@ -1949,7 +1854,6 @@ class Pipeline(Redis):
         return data
 
     def _execute_pipeline(self, connection, commands, raise_on_error):
-        # build up all commands into a single request to increase network perf
         all_cmds = connection.pack_commands([args for args, _ in commands])
         connection.send_packed_command(all_cmds)
 
@@ -1988,12 +1892,9 @@ class Pipeline(Redis):
         return result
 
     def load_scripts(self):
-        # make sure all scripts that are about to be run on this pipeline exist
         scripts = list(self.scripts)
         immediate = self.immediate_execute_command
         shas = [s.sha for s in scripts]
-        # we can't use the normal script_* methods because they would just
-        # get buffered in the pipeline.
         exists = immediate("SCRIPT EXISTS", *shas)
         if not all(exists):
             for s, exist in zip(scripts, exists):
@@ -2028,9 +1929,6 @@ class Pipeline(Redis):
                 retry_attempts=failure_count,
             )
         conn.disconnect()
-        # if we were watching a variable, the watch is no longer valid
-        # since this connection has died. raise a WatchError, which
-        # indicates the user should retry this transaction.
         if self.watching:
             raise WatchError(
                 f"A {type(error).__name__} occurred while watching one or more keys"
@@ -2053,13 +1951,9 @@ class Pipeline(Redis):
         conn = self.connection
         if not conn:
             conn = self.connection_pool.get_connection()
-            # assign to self.connection so reset() releases the connection
-            # back to the pool after we're done
             self.connection = conn
 
-        # Start timing for observability
         start_time = time.monotonic()
-        # Track actual retry attempts for error reporting
         actual_retry_attempts = [0]
 
         def failure_callback(error, failure_count):
@@ -2098,8 +1992,6 @@ class Pipeline(Redis):
             raise
 
         finally:
-            # in reset() the connection is disconnected before returned to the pool if
-            # it is marked for reconnect.
             self.reset()
 
     def discard(self):

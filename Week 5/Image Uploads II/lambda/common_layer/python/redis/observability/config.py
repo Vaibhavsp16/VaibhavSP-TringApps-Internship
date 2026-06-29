@@ -78,7 +78,6 @@ class OTelConfig:
             from opentelemetry.sdk.metrics._internal.view import View
             from opentelemetry.sdk.metrics._internal.aggregation import ExplicitBucketHistogramAggregation
 
-            # Configure histogram bucket boundaries via Views
             views = [
                 View(
                     instrument_name="db.client.operation.duration",
@@ -87,13 +86,11 @@ class OTelConfig:
                                     0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5]
                     ),
                 ),
-                # Add more views for other histograms...
             ]
 
             provider = MeterProvider(views=views, metric_readers=[reader])
             metrics.set_meter_provider(provider)
 
-            # Then initialize redis-py observability
             from redis.observability import get_observability_instance, OTelConfig
             otel = get_observability_instance()
             otel.init(OTelConfig())
@@ -104,17 +101,12 @@ class OTelConfig:
 
     def __init__(
         self,
-        # Core enablement
         enabled_telemetry: Optional[List[TelemetryOption]] = None,
-        # Metrics-specific
         metric_groups: Optional[List[MetricGroup]] = None,
-        # Redis-specific telemetry controls
         include_commands: Optional[List[str]] = None,
         exclude_commands: Optional[List[str]] = None,
-        # Privacy controls
         hide_pubsub_channel_names: bool = False,
         hide_stream_names: bool = False,
-        # Bucket sizes
         buckets_operation_duration: Sequence[
             float
         ] = default_operation_duration_buckets(),
@@ -124,7 +116,6 @@ class OTelConfig:
         buckets_connection_create_time: Sequence[float] = default_histogram_buckets(),
         buckets_connection_wait_time: Sequence[float] = default_histogram_buckets(),
     ):
-        # Core enablement
         if enabled_telemetry is None:
             self.enabled_telemetry = self.DEFAULT_TELEMETRY
         else:
@@ -132,7 +123,6 @@ class OTelConfig:
             for option in enabled_telemetry:
                 self.enabled_telemetry |= option
 
-        # Enable default metrics if None given
         if metric_groups is None:
             self.metric_groups = self.DEFAULT_METRIC_GROUPS
         else:
@@ -140,15 +130,12 @@ class OTelConfig:
             for metric_group in metric_groups:
                 self.metric_groups |= metric_group
 
-        # Redis-specific controls
         self.include_commands = set(include_commands) if include_commands else None
         self.exclude_commands = set(exclude_commands) if exclude_commands else set()
 
-        # Privacy controls for hiding sensitive names in metrics
         self.hide_pubsub_channel_names = hide_pubsub_channel_names
         self.hide_stream_names = hide_stream_names
 
-        # Bucket sizes
         self.buckets_operation_duration = buckets_operation_duration
         self.buckets_stream_processing_duration = buckets_stream_processing_duration
         self.buckets_connection_create_time = buckets_connection_create_time
@@ -170,11 +157,9 @@ class OTelConfig:
         """
         command_upper = command_name.upper()
 
-        # If include list is specified, only track commands in the list
         if self.include_commands is not None:
             return command_upper in self.include_commands
 
-        # Otherwise, track all commands except those in exclude list
         return command_upper not in self.exclude_commands
 
     def __repr__(self) -> str:

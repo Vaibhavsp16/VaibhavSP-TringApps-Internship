@@ -30,22 +30,17 @@ VGETATTR_CMD = "VGETATTR"
 VRANDMEMBER_CMD = "VRANDMEMBER"
 VRANGE_CMD = "VRANGE"
 
-# Return type for vsim command
 VSimResult = (
     list[list[EncodableT] | dict[EncodableT, Number] | dict[EncodableT, dict[str, Any]]]
     | None
 )
 
-# Return type for vemb command
 VEmbResult = list[EncodableT] | dict[str, EncodableT] | None
 
-# Return type for vlinks command
 VLinksResult = list[list[str | bytes] | dict[str | bytes, Number]] | None
 
-# Return type for vrandmember command
 VRandMemberResult = list[str] | str | None
 
-# Return type for vgetattr command
 VGetAttrResult = dict | None
 
 
@@ -165,7 +160,6 @@ class VectorSetCommands(CommandsProtocol):
 
         if attributes:
             if isinstance(attributes, dict):
-                # transform attributes to json string
                 attributes_json = json.dumps(attributes)
             else:
                 attributes_json = attributes
@@ -394,9 +388,6 @@ class VectorSetCommands(CommandsProtocol):
                 hasattr(self.client, "nodes_manager")
                 and self.client.nodes_manager.connection_kwargs["decode_responses"]
             ):
-                # allow decoding in the postprocessing callback
-                # if the user set decode_responses=True
-                # in the connection pool
                 options[CallbacksOptions.ALLOW_DECODING.value] = True
 
             options[CallbacksOptions.RAW.value] = True
@@ -485,7 +476,6 @@ class VectorSetCommands(CommandsProtocol):
         if attributes is None:
             attributes_json = "{}"
         elif isinstance(attributes, dict):
-            # transform attributes to json string
             attributes_json = json.dumps(attributes)
         else:
             attributes_json = attributes

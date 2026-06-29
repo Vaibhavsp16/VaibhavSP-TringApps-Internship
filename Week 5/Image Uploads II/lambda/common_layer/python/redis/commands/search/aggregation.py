@@ -35,7 +35,6 @@ class Reducer:
         """
         Set the alias for this reducer.
 
-        ### Parameters
 
         - **alias**: The value of the alias for this reducer. If this is the
             special value `aggregation.FIELDNAME` then this reducer will be
@@ -50,7 +49,6 @@ class Reducer:
             if not self._field:
                 raise ValueError("Cannot use FIELDNAME alias with no field")
             else:
-                # Chop off initial '@'
                 alias = self._field[1:]
         self._alias = alias
         return self
@@ -122,7 +120,6 @@ class AggregateRequest:
         Indicate the fields to be returned in the response. These fields are
         returned in addition to any others implicitly specified.
 
-        ### Parameters
 
         - **fields**: If fields not specified, all the fields will be loaded.
         Otherwise, fields should be given in the format of `@field`.
@@ -139,7 +136,6 @@ class AggregateRequest:
         """
         Specify by which fields to group the aggregation.
 
-        ### Parameters
 
         - **fields**: Fields to group by. This can either be a single string,
             or a list of strings. both cases, the field should be specified as
@@ -163,7 +159,6 @@ class AggregateRequest:
         """
         Specify one or more projection expressions to add to each result
 
-        ### Parameters
 
         - **kwexpr**: One or more key-value pairs for a projection. The key is
             the alias for the projection, and the value is the projection
@@ -188,7 +183,6 @@ class AggregateRequest:
         Setting a limit on the initial search results may be useful when
         attempting to execute an aggregation on a sample of a large data set.
 
-        ### Parameters
 
         - **offset**: Result offset from which to begin paging
         - **num**: Number of results to return
@@ -228,7 +222,6 @@ class AggregateRequest:
         Indicate how the results should be sorted. This can also be used for
         *top-N* style queries
 
-        ### Parameters
 
         - **fields**: The fields by which to sort. This can be either a single
             field or a list of fields. If you wish to specify order, you can
@@ -273,7 +266,6 @@ class AggregateRequest:
         Specify filter for post-query results using predicates relating to
         values in the result set.
 
-        ### Parameters
 
         - **fields**: Fields to group by. This can either be a single string,
             or a list of strings.
@@ -326,7 +318,6 @@ class AggregateRequest:
         return self
 
     def build_args(self) -> List[str]:
-        # @foo:bar ...
         ret = [self._query]
 
         if self._with_schema:

@@ -88,7 +88,6 @@ class MultiDBClient(AsyncRedisModuleCommands, AsyncCoreCommands):
         return self
 
     async def aclose(self):
-        # Cancel background tasks
         if self._recurring_hc_task:
             self._recurring_hc_task.cancel()
         if self._half_open_state_task:
@@ -96,10 +95,8 @@ class MultiDBClient(AsyncRedisModuleCommands, AsyncCoreCommands):
         for hc_task in self._hc_tasks:
             hc_task.cancel()
 
-        # Close health check connection pools
         await self._health_check_policy.close()
 
-        # Close database client
         if self.command_executor.active_database:
             await self.command_executor.active_database.client.aclose()
 
@@ -111,10 +108,8 @@ class MultiDBClient(AsyncRedisModuleCommands, AsyncCoreCommands):
         Perform initialization of databases to define their initial state.
         """
 
-        # Initial databases check to define initial state
         await self._perform_initial_health_check()
 
-        # Starts recurring health checks on the background.
         self._recurring_hc_task = asyncio.create_task(
             self._bg_scheduler.run_recurring_async(
                 self._health_check_interval,
@@ -125,13 +120,9 @@ class MultiDBClient(AsyncRedisModuleCommands, AsyncCoreCommands):
         is_active_db_found = False
 
         for database, weight in self._databases:
-            # Set on state changed callback for each circuit.
             database.circuit.on_state_changed(self._on_circuit_state_change_callback)
 
-            # Set states according to a weights and circuit state
             if database.circuit.state == CBState.CLOSED and not is_active_db_found:
-                # Directly set the active database during initialization
-                # without recording a geo failover metric
                 self.command_executor._active_database = database
                 is_active_db_found = True
 
@@ -185,8 +176,6 @@ class MultiDBClient(AsyncRedisModuleCommands, AsyncCoreCommands):
             config: DatabaseConfig object that contains the database configuration.
             skip_initial_health_check: If True, adds the database even if it is unhealthy.
         """
-        # The retry object is not used in the lower level clients, so we can safely remove it.
-        # We rely on command_retry in terms of global retries.
         config.client_kwargs.update({"retry": Retry(retries=0, backoff=NoBackoff())})
 
         if config.from_url:
@@ -345,7 +334,6 @@ class MultiDBClient(AsyncRedisModuleCommands, AsyncCoreCommands):
 
         results = await asyncio.gather(*self._hc_tasks, return_exceptions=True)
 
-        # Map end results to databases
         db_results = {
             task_to_db[task]: result for task, result in zip(self._hc_tasks, results)
         }
@@ -392,7 +380,6 @@ class MultiDBClient(AsyncRedisModuleCommands, AsyncCoreCommands):
         """
         Runs health checks on the given database until first failure.
         """
-        # Health check will setup circuit state
         is_healthy = await self._health_check_policy.execute(
             self._health_checks, database
         )

@@ -151,11 +151,6 @@ class PythonRespSerializer:
     def pack(self, *args):
         """Pack a series of arguments into the Redis protocol"""
         output = []
-        # the client might have included 1 or more literal arguments in
-        # the command name, e.g., 'CONFIG GET'. The Redis server expects these
-        # arguments to be sent separately, so split the first argument
-        # manually. These arguments should be bytestrings so that they are
-        # not encoded.
         if isinstance(args[0], str):
             args = tuple(args[0].encode().split()) + args[1:]
         elif b" " in args[0]:
@@ -165,8 +160,6 @@ class PythonRespSerializer:
 
         buffer_cutoff = self._buffer_cutoff
         for arg in map(self.encode, args):
-            # to avoid large string mallocs, chunk the command into the
-            # output list if we're sending large values or memoryviews
             arg_length = len(arg)
             if (
                 len(buff) > buffer_cutoff
@@ -241,8 +234,6 @@ class ConnectionInterface:
 
     @abstractmethod
     def can_read(self, timeout: float = 0) -> bool:
-        # TODO: Rename this API; it detects pending data or dirty/closed
-        # connection state, not only whether application data can be read.
         pass
 
     @abstractmethod
@@ -482,11 +473,6 @@ class MaintNotificationsAbstractConnection:
             )
 
         if maint_notifications_pool_handler:
-            # Extract a reference to a new pool handler that copies all properties
-            # of the original one and has a different connection reference
-            # This is needed because when we attach the handler to the parser
-            # we need to make sure that the handler has a reference to the
-            # connection that the parser is attached to.
             self._maint_notifications_pool_handler = (
                 maint_notifications_pool_handler.get_handler_for_connection()
             )
@@ -505,24 +491,20 @@ class MaintNotificationsAbstractConnection:
         else:
             self._oss_cluster_maint_notifications_handler = None
 
-        # Set up OSS cluster handler to parser if available
         if self._oss_cluster_maint_notifications_handler:
             parser.set_oss_cluster_maint_push_handler(
                 self._oss_cluster_maint_notifications_handler.handle_notification
             )
 
-        # Set up pool handler to parser if available
         if self._maint_notifications_pool_handler:
             parser.set_node_moving_push_handler(
                 self._maint_notifications_pool_handler.handle_notification
             )
 
-        # Set up connection handler
         parser.set_maintenance_push_handler(
             self._maint_notifications_connection_handler.handle_notification
         )
 
-        # Store original connection parameters
         self.orig_host_address = orig_host_address if orig_host_address else self.host
         self.orig_socket_timeout = (
             orig_socket_timeout if orig_socket_timeout else self.socket_timeout
@@ -536,10 +518,6 @@ class MaintNotificationsAbstractConnection:
     def set_maint_notifications_pool_handler_for_connection(
         self, maint_notifications_pool_handler: MaintNotificationsPoolHandler
     ):
-        # Deep copy the pool handler to avoid sharing the same pool handler
-        # between multiple connections, because otherwise each connection will override
-        # the connection reference and the pool handler will only hold a reference
-        # to the last connection that was set.
         maint_notifications_pool_handler_copy = (
             maint_notifications_pool_handler.get_handler_for_connection()
         )
@@ -551,7 +529,6 @@ class MaintNotificationsAbstractConnection:
 
         self._maint_notifications_pool_handler = maint_notifications_pool_handler_copy
 
-        # Update maintenance notification connection handler if it doesn't exist
         if not self._maint_notifications_connection_handler:
             self._maint_notifications_connection_handler = (
                 MaintNotificationsConnectionHandler(
@@ -577,7 +554,6 @@ class MaintNotificationsAbstractConnection:
             oss_cluster_maint_notifications_handler
         )
 
-        # Update maintenance notification connection handler if it doesn't exist
         if not self._maint_notifications_connection_handler:
             self._maint_notifications_connection_handler = (
                 MaintNotificationsConnectionHandler(
@@ -593,12 +569,6 @@ class MaintNotificationsAbstractConnection:
             )
 
     def activate_maint_notifications_handling_if_enabled(self, check_health=True):
-        # Send maintenance notifications handshake if RESP3 is active
-        # and maintenance notifications are enabled
-        # and we have a host to determine the endpoint type from
-        # When the maint_notifications_config enabled mode is "auto",
-        # we just log a warning if the handshake fails
-        # When the mode is enabled=True, we raise an exception in case of failure
         host = getattr(self, "host", None)
         if (
             self.get_protocol() not in [2, "2"]
@@ -642,7 +612,6 @@ class MaintNotificationsAbstractConnection:
                 isinstance(e, ResponseError)
                 and maint_notifications_config.enabled == "auto"
             ):
-                # Log warning but don't fail the connection
                 import logging
 
                 logger = logging.getLogger(__name__)
@@ -665,38 +634,25 @@ class MaintNotificationsAbstractConnection:
             str: The resolved IP address, or None if it cannot be determined
         """
 
-        # Method 1: Try to get the actual IP from the established socket connection
-        # This is most accurate as it shows the exact IP being used
         try:
             conn_socket = self._get_socket()
             if conn_socket is not None:
                 peer_addr = conn_socket.getpeername()
                 if peer_addr and len(peer_addr) >= 1:
-                    # For TCP sockets, peer_addr is typically (host, port) tuple
-                    # Return just the host part
                     return peer_addr[0]
         except (AttributeError, OSError):
-            # Socket might not be connected or getpeername() might fail
             pass
 
-        # Method 2: Fallback to DNS resolution of the host
-        # This is less accurate but works when socket is not available
         try:
             host = getattr(self, "host", "localhost")
             port = getattr(self, "port", 6379)
             if host:
-                # Use getaddrinfo to resolve the hostname to IP
-                # This mimics what the connection would do during _connect()
                 addr_info = socket.getaddrinfo(
                     host, port, socket.AF_UNSPEC, socket.SOCK_STREAM
                 )
                 if addr_info:
-                    # Return the IP from the first result
-                    # addr_info[0] is (family, socktype, proto, canonname, sockaddr)
-                    # sockaddr[0] is the IP address
                     return str(addr_info[0][4][0])
         except (AttributeError, OSError, socket.gaierror):
-            # DNS resolution might fail
             pass
 
         return None
@@ -738,11 +694,6 @@ class MaintNotificationsAbstractConnection:
         conn_socket = self._get_socket()
         if conn_socket:
             timeout = relaxed_timeout if relaxed_timeout != -1 else self.socket_timeout
-            # if the current timeout is 0 it means we are in the middle of a can_read call
-            # in this case we don't want to change the timeout because the operation
-            # is non-blocking and should return immediately
-            # Changing the state from non-blocking to blocking in the middle of a read operation
-            # will lead to a deadlock
             if conn_socket.gettimeout() != 0:
                 conn_socket.settimeout(timeout)
             self.update_parser_timeout(timeout)
@@ -862,7 +813,6 @@ class AbstractConnection(MaintNotificationsAbstractConnection, ConnectionInterfa
         self.db = db
         self.client_name = client_name
 
-        # Handle driver_info: if provided, use it; otherwise create from lib_name/lib_version.
         self.driver_info = resolve_driver_info(driver_info, lib_name, lib_version)
 
         self.credential_provider = credential_provider
@@ -878,17 +828,14 @@ class AbstractConnection(MaintNotificationsAbstractConnection, ConnectionInterfa
         else:
             retry_on_errors_list = list(retry_on_error)
         if retry_on_timeout:
-            # Add TimeoutError to the errors list to retry on
             retry_on_errors_list.append(TimeoutError)
         self.retry_on_error = retry_on_errors_list
         if retry or self.retry_on_error:
             if retry is None:
                 self.retry = Retry(NoBackoff(), 1)
             else:
-                # deep-copy the Retry object as it is mutable
                 self.retry = copy.deepcopy(retry)
             if self.retry_on_error:
-                # Update the retry's supported errors with the specified errors
                 self.retry.update_supported_errors(self.retry_on_error)
         else:
             self.retry = Retry(NoBackoff(), 0)
@@ -914,18 +861,12 @@ class AbstractConnection(MaintNotificationsAbstractConnection, ConnectionInterfa
         self.protocol = p
         self.legacy_responses = legacy_responses
         if self.protocol == 3 and parser_class == _RESP2Parser:
-            # If the protocol is 3 but the parser is RESP2, change it to RESP3
-            # This is needed because the parser might be set before the protocol
-            # or might be provided as a kwarg to the constructor
-            # We need to react on discrepancy only for RESP2 and RESP3
-            # as hiredis supports both
             parser_class = _RESP3Parser
         self.set_parser(parser_class)
 
         self._command_packer = self._construct_command_packer(command_packer)
         self._should_reconnect = False
 
-        # Set up maintenance notifications
         MaintNotificationsAbstractConnection.__init__(
             self,
             maint_notifications_config,
@@ -1002,8 +943,6 @@ class AbstractConnection(MaintNotificationsAbstractConnection, ConnectionInterfa
 
     def connect(self):
         "Connects to the Redis server if not already connected"
-        # try once the socket connect with the handshake, retry the whole
-        # connect/handshake flow based on retry policy
         self.retry.call_with_retry(
             lambda: self.connect_check_health(
                 check_health=True, retry_socket_connect=False
@@ -1016,7 +955,6 @@ class AbstractConnection(MaintNotificationsAbstractConnection, ConnectionInterfa
     ):
         if self._sock:
             return
-        # Track actual retry attempts for error reporting
         actual_retry_attempts = [0]
 
         def failure_callback(error, failure_count):
@@ -1058,19 +996,13 @@ class AbstractConnection(MaintNotificationsAbstractConnection, ConnectionInterfa
         self._sock = sock
         try:
             if self.redis_connect_func is None:
-                # Use the default on_connect function
                 self.on_connect_check_health(check_health=check_health)
             else:
-                # Use the passed function redis_connect_func
                 self.redis_connect_func(self)
         except RedisError:
-            # clean up after any error in on_connect
             self.disconnect()
             raise
 
-        # run any user callbacks. right now the only internal callback
-        # is for pubsub channel/pattern resubscription
-        # first, remove any dead weakrefs
         self._connect_callbacks = [ref for ref in self._connect_callbacks if ref()]
         for ref in self._connect_callbacks:
             callback = ref()
@@ -1097,7 +1029,6 @@ class AbstractConnection(MaintNotificationsAbstractConnection, ConnectionInterfa
         parser = self._parser
 
         auth_args = None
-        # if credential provider or username and/or password are set, authenticate
         if self.credential_provider or (self.username or self.password):
             cred_provider = (
                 self.credential_provider
@@ -1105,49 +1036,32 @@ class AbstractConnection(MaintNotificationsAbstractConnection, ConnectionInterfa
             )
             auth_args = cred_provider.get_credentials()
 
-        # if resp version is specified and we have auth args,
-        # we need to send them via HELLO
         if auth_args and self.protocol not in [2, "2"]:
             if isinstance(self._parser, _RESP2Parser):
                 self.set_parser(_RESP3Parser)
-                # update cluster exception classes
                 self._parser.EXCEPTION_CLASSES = parser.EXCEPTION_CLASSES
                 self._parser.on_connect(self)
             if len(auth_args) == 1:
                 auth_args = ["default", auth_args[0]]
-            # avoid checking health here -- PING will fail if we try
-            # to check the health prior to the AUTH
             self.send_command(
                 "HELLO", self.protocol, "AUTH", *auth_args, check_health=False
             )
             self.handshake_metadata = self.read_response()
-            # if response.get(b"proto") != self.protocol and response.get(
-            #     "proto"
-            # ) != self.protocol:
-            #     raise ConnectionError("Invalid RESP version")
         elif auth_args:
-            # avoid checking health here -- PING will fail if we try
-            # to check the health prior to the AUTH
             self.send_command("AUTH", *auth_args, check_health=False)
 
             try:
                 auth_response = self.read_response()
             except AuthenticationWrongNumberOfArgsError:
-                # a username and password were specified but the Redis
-                # server seems to be < 6.0.0 which expects a single password
-                # arg. retry auth with just the password.
-                # https://github.com/andymccurdy/redis-py/issues/1274
                 self.send_command("AUTH", auth_args[-1], check_health=False)
                 auth_response = self.read_response()
 
             if str_if_bytes(auth_response) != "OK":
                 raise AuthenticationError("Invalid Username or Password")
 
-        # if resp version is specified, switch to it
         elif self.protocol not in [2, "2"]:
             if isinstance(self._parser, _RESP2Parser):
                 self.set_parser(_RESP3Parser)
-                # update cluster exception classes
                 self._parser.EXCEPTION_CLASSES = parser.EXCEPTION_CLASSES
                 self._parser.on_connect(self)
             self.send_command("HELLO", self.protocol, check_health=check_health)
@@ -1158,12 +1072,8 @@ class AbstractConnection(MaintNotificationsAbstractConnection, ConnectionInterfa
             ):
                 raise ConnectionError("Invalid RESP version")
 
-        # Activate maintenance notifications for this connection
-        # if enabled in the configuration
-        # This is a no-op if maintenance notifications are not enabled
         self.activate_maint_notifications_handling_if_enabled(check_health=check_health)
 
-        # if a client_name is given, set it
         if self.client_name:
             self.send_command(
                 "CLIENT",
@@ -1174,7 +1084,6 @@ class AbstractConnection(MaintNotificationsAbstractConnection, ConnectionInterfa
             if str_if_bytes(self.read_response()) != "OK":
                 raise ConnectionError("Error setting client name")
 
-        # Set the library name and version from driver_info
         try:
             if self.driver_info and self.driver_info.formatted_name:
                 self.send_command(
@@ -1201,7 +1110,6 @@ class AbstractConnection(MaintNotificationsAbstractConnection, ConnectionInterfa
         except ResponseError:
             pass
 
-        # if a database is specified, switch to it
         if self.db:
             self.send_command("SELECT", self.db, check_health=check_health)
             if str_if_bytes(self.read_response()) != "OK":
@@ -1213,7 +1121,6 @@ class AbstractConnection(MaintNotificationsAbstractConnection, ConnectionInterfa
 
         conn_sock = self._sock
         self._sock = None
-        # reset the reconnect flag
         self.reset_should_reconnect()
 
         if conn_sock is None:
@@ -1260,14 +1167,8 @@ class AbstractConnection(MaintNotificationsAbstractConnection, ConnectionInterfa
             )
 
         if self.maintenance_state == MaintenanceState.MAINTENANCE:
-            # this block will be executed only if the connection was in maintenance state
-            # and the connection was closed.
-            # The state change won't be applied on connections that are in Moving state
-            # because their state and configurations will be handled when the moving ttl expires.
             self.reset_tmp_settings(reset_relaxed_timeout=True)
             self.maintenance_state = MaintenanceState.NONE
-            # reset the sets that keep track of received start maint
-            # notifications and skipped end maint notifications
             self.reset_received_notifications()
 
     def mark_for_reconnect(self):
@@ -1304,7 +1205,6 @@ class AbstractConnection(MaintNotificationsAbstractConnection, ConnectionInterfa
         """Send an already packed command to the Redis server"""
         if not self._sock:
             self.connect_check_health(check_health=False)
-        # guard against health check recursion
         if check_health:
             self.check_health()
         try:
@@ -1324,10 +1224,6 @@ class AbstractConnection(MaintNotificationsAbstractConnection, ConnectionInterfa
                 errmsg = e.args[1]
             raise ConnectionError(f"Error {errno} while writing to socket. {errmsg}.")
         except BaseException:
-            # BaseExceptions can be raised when a socket send operation is not
-            # finished, e.g. due to a timeout.  Ideally, a caller could then re-try
-            # to send un-sent data. However, the send_packed_command() API
-            # does not support it so there is no point in keeping the connection open.
             self.disconnect()
             raise
 
@@ -1340,8 +1236,6 @@ class AbstractConnection(MaintNotificationsAbstractConnection, ConnectionInterfa
 
     def can_read(self, timeout: float = 0) -> bool:
         """Poll the socket to see if there's data that can be read."""
-        # TODO: Rename this API; it detects pending data or dirty/closed
-        # connection state, not only whether application data can be read.
         sock = self._sock
         if not sock:
             self.connect()
@@ -1387,9 +1281,6 @@ class AbstractConnection(MaintNotificationsAbstractConnection, ConnectionInterfa
                 self.disconnect()
             raise ConnectionError(f"Error while reading from {host_error} : {e.args}")
         except BaseException:
-            # Also by default close in case of BaseException.  A lot of code
-            # relies on this behaviour when doing Command/Response pairs.
-            # See #1128.
             if disconnect_on_error:
                 self.disconnect()
             raise
@@ -1401,7 +1292,7 @@ class AbstractConnection(MaintNotificationsAbstractConnection, ConnectionInterfa
             try:
                 raise response
             finally:
-                del response  # avoid creating ref cycles
+                del response 
         return response
 
     def pack_command(self, *args):
@@ -1538,9 +1429,6 @@ class Connection(AbstractConnection):
 
     def _connect(self):
         "Create a TCP socket connection"
-        # we want to mimic what socket.create_connection does to support
-        # ipv4/ipv6, but we want to set options prior to calling
-        # socket.connect()
         err = None
 
         for res in socket.getaddrinfo(
@@ -1550,22 +1438,17 @@ class Connection(AbstractConnection):
             sock = None
             try:
                 sock = socket.socket(family, socktype, proto)
-                # TCP_NODELAY
                 sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
-                # TCP_KEEPALIVE
                 if self.socket_keepalive:
                     sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
                     for k, v in self.socket_keepalive_options.items():
                         sock.setsockopt(socket.IPPROTO_TCP, k, v)
 
-                # set the socket_connect_timeout before we connect
                 sock.settimeout(self.socket_connect_timeout)
 
-                # connect
                 sock.connect(socket_address)
 
-                # set the socket_timeout now that we're connected
                 sock.settimeout(self.socket_timeout)
                 return sock
 
@@ -1573,7 +1456,7 @@ class Connection(AbstractConnection):
                 err = _
                 if sock is not None:
                     try:
-                        sock.shutdown(socket.SHUT_RDWR)  # ensure a clean close
+                        sock.shutdown(socket.SHUT_RDWR) 
                     except OSError:
                         pass
                     sock.close()
@@ -1690,7 +1573,7 @@ class CacheProxyConnection(MaintNotificationsAbstractConnection, ConnectionInter
             or compare_versions(server_ver, self.MIN_ALLOWED_VERSION) == 1
         ):
             raise ConnectionError(
-                "To maximize compatibility with all Redis products, client-side caching is supported by Redis 7.4 or later"  # noqa: E501
+                "To maximize compatibility with all Redis products, client-side caching is supported by Redis 7.4 or later" 
             )
 
     def on_connect(self):
@@ -1705,16 +1588,12 @@ class CacheProxyConnection(MaintNotificationsAbstractConnection, ConnectionInter
         self._conn.check_health()
 
     def send_packed_command(self, command, check_health=True):
-        # TODO: Investigate if it's possible to unpack command
-        #  or extract keys from packed command
         self._conn.send_packed_command(command)
 
     def send_command(self, *args, **kwargs):
         self._process_pending_invalidations()
 
         with self._cache_lock:
-            # Command is write command or not allowed
-            # to be cached.
             if not self._cache.is_cachable(
                 CacheKey(command=args[0], redis_keys=(), redis_args=())
             ):
@@ -1725,15 +1604,11 @@ class CacheProxyConnection(MaintNotificationsAbstractConnection, ConnectionInter
         if kwargs.get("keys") is None:
             raise ValueError("Cannot create cache key.")
 
-        # Creates cache key.
         self._current_command_cache_key = CacheKey(
             command=args[0], redis_keys=tuple(kwargs.get("keys")), redis_args=args
         )
 
         with self._cache_lock:
-            # We have to trigger invalidation processing in case if
-            # it was cached by another connection to avoid
-            # queueing invalidations in stale connections.
             if self._cache.get(self._current_command_cache_key):
                 entry = self._cache.get(self._current_command_cache_key)
 
@@ -1748,13 +1623,9 @@ class CacheProxyConnection(MaintNotificationsAbstractConnection, ConnectionInter
                         except TimeoutError:
                             break
 
-                # Re-check: if the entry was invalidated during the drain,
-                # fall through to send the command over the network.
                 if self._cache.get(self._current_command_cache_key):
                     return
 
-            # Set temporary entry value to prevent
-            # race condition from another connection.
             self._cache.set(
                 CacheEntry(
                     cache_key=self._current_command_cache_key,
@@ -1764,13 +1635,9 @@ class CacheProxyConnection(MaintNotificationsAbstractConnection, ConnectionInter
                 )
             )
 
-        # Send command over socket only if it's allowed
-        # read-only command that not yet cached.
         self._conn.send_command(*args, **kwargs)
 
     def can_read(self, timeout: float = 0) -> bool:
-        # TODO: Rename this API; it detects pending data or dirty/closed
-        # connection state, not only whether application data can be read.
         return self._conn.can_read(timeout)
 
     def read_response(
@@ -1782,7 +1649,6 @@ class CacheProxyConnection(MaintNotificationsAbstractConnection, ConnectionInter
         push_request=False,
     ):
         with self._cache_lock:
-            # Check if command response exists in a cache and it's not in progress.
             if self._current_command_cache_key is not None:
                 if (
                     self._cache.get(self._current_command_cache_key) is not None
@@ -1812,18 +1678,14 @@ class CacheProxyConnection(MaintNotificationsAbstractConnection, ConnectionInter
         )
 
         with self._cache_lock:
-            # Prevent not-allowed command from caching.
             if self._current_command_cache_key is None:
                 return response
-            # If response is None prevent from caching.
             if response is None:
                 self._cache.delete_by_cache_keys([self._current_command_cache_key])
                 return response
 
             cache_entry = self._cache.get(self._current_command_cache_key)
 
-            # Cache only responses that still valid
-            # and wasn't invalidated by another connection in meantime.
             if cache_entry is not None:
                 cache_entry.status = CacheEntryStatus.VALID
                 cache_entry.cache_value = response
@@ -1981,7 +1843,6 @@ class CacheProxyConnection(MaintNotificationsAbstractConnection, ConnectionInter
 
     def _on_invalidation_callback(self, data: List[Union[str, Optional[List[bytes]]]]):
         with self._cache_lock:
-            # Flush cache when DB flushed on server-side
             if data[1] is None:
                 self._cache.flush()
             else:
@@ -2056,7 +1917,7 @@ class SSLConnection(Connection):
         if ssl_cert_reqs is None:
             ssl_cert_reqs = ssl.CERT_NONE
         elif isinstance(ssl_cert_reqs, str):
-            CERT_REQS = {  # noqa: N806
+            CERT_REQS = { 
                 "none": ssl.CERT_NONE,
                 "optional": ssl.CERT_OPTIONAL,
                 "required": ssl.CERT_REQUIRED,
@@ -2143,13 +2004,11 @@ class SSLConnection(Connection):
 
         sslsock = context.wrap_socket(sock, server_hostname=self.host)
 
-        # validation for the stapled case
         if self.ssl_validate_ocsp_stapled:
             import OpenSSL
 
             from .ocsp import ocsp_staple_verifier
 
-            # if a context is provided use it - otherwise, a basic context
             if self.ssl_ocsp_context is None:
                 staple_ctx = OpenSSL.SSL.Context(OpenSSL.SSL.SSLv23_METHOD)
                 staple_ctx.use_certificate_file(self.certfile)
@@ -2161,7 +2020,6 @@ class SSLConnection(Connection):
                 ocsp_staple_verifier, self.ssl_ocsp_expected_cert
             )
 
-            #  need another socket
             con = OpenSSL.SSL.Connection(staple_ctx, socket.socket())
             con.request_ocsp()
             con.connect((self.host, self.port))
@@ -2169,7 +2027,6 @@ class SSLConnection(Connection):
             con.shutdown()
             return sslsock
 
-        # pure ocsp validation
         if self.ssl_validate_ocsp is True and CRYPTOGRAPHY_AVAILABLE:
             from .ocsp import OCSPVerifier
 
@@ -2202,9 +2059,8 @@ class UnixDomainSocketConnection(AbstractConnection):
         try:
             sock.connect(self.path)
         except OSError:
-            # Prevent ResourceWarnings for unclosed sockets.
             try:
-                sock.shutdown(socket.SHUT_RDWR)  # ensure a clean close
+                sock.shutdown(socket.SHUT_RDWR) 
             except OSError:
                 pass
             sock.close()
@@ -2228,8 +2084,6 @@ def to_bool(value):
 
 
 def parse_ssl_verify_flags(value):
-    # flags are passed in as a string representation of a list,
-    # e.g. VERIFY_X509_STRICT, VERIFY_X509_PARTIAL_CHAIN
     verify_flags_str = value.replace("[", "").replace("]", "")
 
     verify_flags = []
@@ -2292,20 +2146,17 @@ def parse_url(url):
     if url.password:
         kwargs["password"] = unquote(url.password)
 
-    # We only support redis://, rediss:// and unix:// schemes.
     if url.scheme == "unix":
         if url.path:
             kwargs["path"] = unquote(url.path)
         kwargs["connection_class"] = UnixDomainSocketConnection
 
-    else:  # implied:  url.scheme in ("redis", "rediss"):
+    else: 
         if url.hostname:
             kwargs["host"] = unquote(url.hostname)
         if url.port:
             kwargs["port"] = int(url.port)
 
-        # If there's a path argument, use it as the db argument if a
-        # querystring value wasn't specified
         if url.path and "db" not in kwargs:
             try:
                 kwargs["db"] = int(unquote(url.path).replace("/", ""))
@@ -2392,7 +2243,6 @@ class MaintNotificationsAbstractConnectionPool:
         ] = None,
         **kwargs,
     ):
-        # Initialize maintenance notifications
         is_protocol_supported = check_protocol_version(kwargs.get("protocol"), 3)
 
         if maint_notifications_config is None and is_protocol_supported:
@@ -2502,7 +2352,6 @@ class MaintNotificationsAbstractConnectionPool:
                 oss_cluster_maint_notifications_handler
             )
         else:
-            # first update pool settings
             if not self._maint_notifications_pool_handler:
                 self._maint_notifications_pool_handler = MaintNotificationsPoolHandler(
                     self, maint_notifications_config
@@ -2512,7 +2361,6 @@ class MaintNotificationsAbstractConnectionPool:
                     maint_notifications_config
                 )
 
-        # then update connection kwargs and existing connections
         self._update_connection_kwargs_for_maint_notifications(
             maint_notifications_pool_handler=self._maint_notifications_pool_handler,
             oss_cluster_maint_notifications_handler=self._oss_cluster_maint_notifications_handler,
@@ -2551,10 +2399,7 @@ class MaintNotificationsAbstractConnectionPool:
                 }
             )
 
-        # Store original connection parameters for maintenance notifications.
         if self.connection_kwargs.get("orig_host_address", None) is None:
-            # If orig_host_address is None it means we haven't
-            # configured the original values yet
             self.connection_kwargs.update(
                 {
                     "orig_host_address": self.connection_kwargs.get("host"),
@@ -2580,7 +2425,6 @@ class MaintNotificationsAbstractConnectionPool:
         with self._get_pool_lock():
             for conn in self._get_free_connections():
                 if oss_cluster_maint_notifications_handler:
-                    # set cluster handler for conn
                     conn.set_maint_notifications_cluster_handler_for_connection(
                         oss_cluster_maint_notifications_handler
                     )
@@ -2664,7 +2508,6 @@ class MaintNotificationsAbstractConnectionPool:
             conn.maintenance_state = state
 
         if update_notification_hash:
-            # update the notification hash only if requested
             conn.maintenance_notification_hash = maintenance_notification_hash
 
         if host_address is not None:
@@ -2943,19 +2786,10 @@ class ConnectionPool(MaintNotificationsAbstractConnectionPool, ConnectionPoolInt
         connection_kwargs.pop("cache", None)
         connection_kwargs.pop("cache_config", None)
 
-        # a lock to protect the critical section in _checkpid().
-        # this lock is acquired when the process id changes, such as
-        # after a fork. during this time, multiple threads in the child
-        # process could attempt to acquire this lock. the first thread
-        # to acquire the lock will reset the data structures and lock
-        # object of this pool. subsequent threads acquiring this lock
-        # will notice the first thread already did the work and simply
-        # release the lock.
 
         self._fork_lock = threading.RLock()
         self._lock = threading.RLock()
 
-        # Generate unique pool ID for observability (matches go-redis behavior)
         import secrets
 
         self._pool_id = secrets.token_hex(4)
@@ -2968,7 +2802,6 @@ class ConnectionPool(MaintNotificationsAbstractConnectionPool, ConnectionPoolInt
 
         self.reset()
 
-    # Keys that should be redacted in __repr__ to avoid exposing sensitive information
     SENSITIVE_REPR_KEYS = frozenset(
         {
             "password",
@@ -3008,8 +2841,6 @@ class ConnectionPool(MaintNotificationsAbstractConnectionPool, ConnectionPoolInt
         return self.connection_kwargs.get("protocol", None)
 
     def reset(self) -> None:
-        # Record metrics for connections being removed before clearing
-        # (only if attributes exist - they won't during __init__)
         if hasattr(self, "_available_connections") and hasattr(
             self, "_in_use_connections"
         ):
@@ -3035,15 +2866,6 @@ class ConnectionPool(MaintNotificationsAbstractConnectionPool, ConnectionPoolInt
         self._available_connections = []
         self._in_use_connections = set()
 
-        # this must be the last operation in this method. while reset() is
-        # called when holding _fork_lock, other threads in this process
-        # can call _checkpid() which compares self.pid and os.getpid() without
-        # holding any lock (for performance reasons). keeping this assignment
-        # as the last operation ensures that those other threads will also
-        # notice a pid difference and block waiting for the first thread to
-        # release _fork_lock. when each of these threads eventually acquire
-        # _fork_lock, they will notice that another thread already called
-        # reset() and they will immediately release _fork_lock and continue on.
         self.pid = os.getpid()
 
     def __del__(self) -> None:
@@ -3053,7 +2875,6 @@ class ConnectionPool(MaintNotificationsAbstractConnectionPool, ConnectionPoolInt
                 self, "_in_use_connections"
             ):
                 return
-            # Record metrics for all connections being removed
             idle_count = len(self._available_connections)
             in_use_count = len(self._in_use_connections)
             if idle_count > 0 or in_use_count > 0:
@@ -3074,46 +2895,10 @@ class ConnectionPool(MaintNotificationsAbstractConnectionPool, ConnectionPoolInt
             pass
 
     def _checkpid(self) -> None:
-        # _checkpid() attempts to keep ConnectionPool fork-safe on modern
-        # systems. this is called by all ConnectionPool methods that
-        # manipulate the pool's state such as get_connection() and release().
-        #
-        # _checkpid() determines whether the process has forked by comparing
-        # the current process id to the process id saved on the ConnectionPool
-        # instance. if these values are the same, _checkpid() simply returns.
-        #
-        # when the process ids differ, _checkpid() assumes that the process
-        # has forked and that we're now running in the child process. the child
-        # process cannot use the parent's file descriptors (e.g., sockets).
-        # therefore, when _checkpid() sees the process id change, it calls
-        # reset() in order to reinitialize the child's ConnectionPool. this
-        # will cause the child to make all new connection objects.
-        #
-        # _checkpid() is protected by self._fork_lock to ensure that multiple
-        # threads in the child process do not call reset() multiple times.
-        #
-        # there is an extremely small chance this could fail in the following
-        # scenario:
-        #   1. process A calls _checkpid() for the first time and acquires
-        #      self._fork_lock.
-        #   2. while holding self._fork_lock, process A forks (the fork()
-        #      could happen in a different thread owned by process A)
-        #   3. process B (the forked child process) inherits the
-        #      ConnectionPool's state from the parent. that state includes
-        #      a locked _fork_lock. process B will not be notified when
-        #      process A releases the _fork_lock and will thus never be
-        #      able to acquire the _fork_lock.
-        #
-        # to mitigate this possible deadlock, _checkpid() will only wait 5
-        # seconds to acquire _fork_lock. if _fork_lock cannot be acquired in
-        # that time it is assumed that the child is deadlocked and a
-        # redis.ChildDeadlockedError error is raised.
         if self.pid != os.getpid():
             acquired = self._fork_lock.acquire(timeout=5)
             if not acquired:
                 raise ChildDeadlockedError
-            # reset() the instance for the new process if another thread
-            # hasn't already done so
             try:
                 if self.pid != os.getpid():
                     self.reset()
@@ -3128,7 +2913,6 @@ class ConnectionPool(MaintNotificationsAbstractConnectionPool, ConnectionPoolInt
     def get_connection(self, command_name=None, *keys, **options) -> "Connection":
         "Get a connection from the pool"
 
-        # Start timing for observability
         self._checkpid()
         is_created = False
 
@@ -3136,16 +2920,12 @@ class ConnectionPool(MaintNotificationsAbstractConnectionPool, ConnectionPoolInt
             try:
                 connection = self._available_connections.pop()
             except IndexError:
-                # Start timing for observability
                 start_time_created = time.monotonic()
 
                 connection = self.make_connection()
                 is_created = True
             self._in_use_connections.add(connection)
 
-        # Record state transition: IDLE -> USED
-        # (make_connection already recorded IDLE +1 for new connections)
-        # This ensures counters stay balanced if connect() fails and release() is called
         pool_name = get_pool_name(self)
         record_connection_count(
             pool_name=pool_name,
@@ -3159,12 +2939,7 @@ class ConnectionPool(MaintNotificationsAbstractConnectionPool, ConnectionPoolInt
         )
 
         try:
-            # ensure this connection is connected to Redis
             connection.connect()
-            # connections that the pool provides should be ready to send
-            # a command. if not, the connection was either returned to the
-            # pool before all data has been read or the socket has been
-            # closed. either way, reconnect and verify everything is good.
             try:
                 if (
                     connection.can_read()
@@ -3178,8 +2953,6 @@ class ConnectionPool(MaintNotificationsAbstractConnectionPool, ConnectionPoolInt
                 if connection.can_read():
                     raise ConnectionError("Connection not ready")
         except BaseException:
-            # release the connection back to the pool so that we don't
-            # leak it
             self.release(connection)
             raise
 
@@ -3208,7 +2981,6 @@ class ConnectionPool(MaintNotificationsAbstractConnectionPool, ConnectionPoolInt
 
         kwargs = dict(self.connection_kwargs)
 
-        # Create the connection first, then record metrics only on success
         if self.cache is not None:
             connection = CacheProxyConnection(
                 self.connection_class(**kwargs), self.cache, self._lock
@@ -3216,7 +2988,6 @@ class ConnectionPool(MaintNotificationsAbstractConnectionPool, ConnectionPoolInt
         else:
             connection = self.connection_class(**kwargs)
 
-        # Record new connection created (starts as IDLE) - only after successful construction
         record_connection_count(
             pool_name=get_pool_name(self),
             connection_state=ConnectionState.IDLE,
@@ -3232,8 +3003,6 @@ class ConnectionPool(MaintNotificationsAbstractConnectionPool, ConnectionPoolInt
             try:
                 self._in_use_connections.remove(connection)
             except KeyError:
-                # Gracefully fail when a connection is returned to this pool
-                # that the pool doesn't actually own
                 return
 
             if self.owns_connection(connection):
@@ -3244,7 +3013,6 @@ class ConnectionPool(MaintNotificationsAbstractConnectionPool, ConnectionPoolInt
                     AfterConnectionReleasedEvent(connection)
                 )
 
-                # Record state transition: USED -> IDLE
                 pool_name = get_pool_name(self)
                 record_connection_count(
                     pool_name=pool_name,
@@ -3257,11 +3025,6 @@ class ConnectionPool(MaintNotificationsAbstractConnectionPool, ConnectionPoolInt
                     counter=1,
                 )
             else:
-                # Pool doesn't own this connection, do not add it back
-                # to the pool.
-                # The created connections count should not be changed,
-                # because the connection was not created by the pool.
-                # Still need to decrement USED since it was counted in get_connection()
                 connection.disconnect()
                 record_connection_count(
                     pool_name="unknown_pool",
@@ -3385,11 +3148,11 @@ class BlockingConnectionPool(ConnectionPool):
     Use ``timeout`` to tell it either how many seconds to wait for a connection
     to become available, or to block forever:
 
-        >>> # Block forever.
+        >>>
         >>> pool = BlockingConnectionPool(timeout=None)
 
-        >>> # Raise a ``ConnectionError`` after five seconds if a connection is
-        >>> # not available.
+        >>>
+        >>>
         >>> pool = BlockingConnectionPool(timeout=5)
     """
 
@@ -3412,15 +3175,11 @@ class BlockingConnectionPool(ConnectionPool):
         )
 
     def reset(self):
-        # Create and fill up a thread safe queue with ``None`` values.
         try:
             if self._in_maintenance:
                 self._lock.acquire()
                 self._locked = True
 
-            # Record metrics for connections being removed before clearing
-            # Note: Access pool.queue directly to avoid deadlock since we may
-            # already hold self._lock (which is non-reentrant)
             if (
                 hasattr(self, "_connections")
                 and self._connections
@@ -3452,8 +3211,6 @@ class BlockingConnectionPool(ConnectionPool):
                 except Full:
                     break
 
-            # Keep a list of actual connection instances so that we can
-            # disconnect them later.
             self._connections = []
         finally:
             if self._locked:
@@ -3463,22 +3220,11 @@ class BlockingConnectionPool(ConnectionPool):
                     pass
                 self._locked = False
 
-        # this must be the last operation in this method. while reset() is
-        # called when holding _fork_lock, other threads in this process
-        # can call _checkpid() which compares self.pid and os.getpid() without
-        # holding any lock (for performance reasons). keeping this assignment
-        # as the last operation ensures that those other threads will also
-        # notice a pid difference and block waiting for the first thread to
-        # release _fork_lock. when each of these threads eventually acquire
-        # _fork_lock, they will notice that another thread already called
-        # reset() and they will immediately release _fork_lock and continue on.
         self.pid = os.getpid()
 
     def __del__(self) -> None:
         """Clean up connection pool and record metrics when garbage collected."""
         try:
-            # Note: Access pool.queue directly to avoid potential deadlock
-            # if GC runs while the lock is held by the same thread
             if (
                 hasattr(self, "_connections")
                 and self._connections
@@ -3521,7 +3267,6 @@ class BlockingConnectionPool(ConnectionPool):
                 connection = self.connection_class(**self.connection_kwargs)
             self._connections.append(connection)
 
-            # Record new connection created (starts as IDLE)
             record_connection_count(
                 pool_name=get_pool_name(self),
                 connection_state=ConnectionState.IDLE,
@@ -3555,12 +3300,9 @@ class BlockingConnectionPool(ConnectionPool):
         connections will only increase in response to demand.
         """
         start_time_acquired = time.monotonic()
-        # Make sure we haven't changed process.
         self._checkpid()
         is_created = False
 
-        # Try and get a connection from the pool. If one isn't available within
-        # self.timeout then raise a ``ConnectionError``.
         connection = None
         try:
             if self._in_maintenance:
@@ -3569,14 +3311,9 @@ class BlockingConnectionPool(ConnectionPool):
             try:
                 connection = self.pool.get(block=True, timeout=self.timeout)
             except Empty:
-                # Note that this is not caught by the redis client and will be
-                # raised unless handled by application code. If you want never to
                 raise ConnectionError("No connection available.")
 
-            # If the ``connection`` is actually ``None`` then that's a cue to make
-            # a new connection to add to the pool.
             if connection is None:
-                # Start timing for observability
                 start_time_created = time.monotonic()
                 connection = self.make_connection()
                 is_created = True
@@ -3588,9 +3325,6 @@ class BlockingConnectionPool(ConnectionPool):
                     pass
                 self._locked = False
 
-        # Record state transition: IDLE -> USED
-        # (make_connection already recorded IDLE +1 for new connections)
-        # This ensures counters stay balanced if connect() fails and release() is called
         pool_name = get_pool_name(self)
         record_connection_count(
             pool_name=pool_name,
@@ -3604,12 +3338,7 @@ class BlockingConnectionPool(ConnectionPool):
         )
 
         try:
-            # ensure this connection is connected to Redis
             connection.connect()
-            # connections that the pool provides should be ready to send
-            # a command. if not, the connection was either returned to the
-            # pool before all data has been read or the socket has been
-            # closed. either way, reconnect and verify everything is good.
             try:
                 if connection.can_read():
                     raise ConnectionError("Connection has data")
@@ -3619,7 +3348,6 @@ class BlockingConnectionPool(ConnectionPool):
                 if connection.can_read():
                     raise ConnectionError("Connection not ready")
         except BaseException:
-            # release the connection back to the pool so that we don't leak it
             self.release(connection)
             raise
 
@@ -3638,7 +3366,6 @@ class BlockingConnectionPool(ConnectionPool):
 
     def release(self, connection):
         "Releases the connection back to the pool."
-        # Make sure we haven't changed process.
         self._checkpid()
 
         try:
@@ -3646,13 +3373,8 @@ class BlockingConnectionPool(ConnectionPool):
                 self._lock.acquire()
                 self._locked = True
             if not self.owns_connection(connection):
-                # pool doesn't own this connection. do not add it back
-                # to the pool. instead add a None value which is a placeholder
-                # that will cause the pool to recreate the connection if
-                # its needed.
                 connection.disconnect()
                 self.pool.put_nowait(None)
-                # Still need to decrement USED since it was counted in get_connection()
                 record_connection_count(
                     pool_name="unknown_pool",
                     connection_state=ConnectionState.USED,
@@ -3661,12 +3383,10 @@ class BlockingConnectionPool(ConnectionPool):
                 return
             if connection.should_reconnect():
                 connection.disconnect()
-            # Put the connection back into the pool.
             pool_name = get_pool_name(self)
             try:
                 self.pool.put_nowait(connection)
 
-                # Record state transition: USED -> IDLE
                 record_connection_count(
                     pool_name=pool_name,
                     connection_state=ConnectionState.USED,
@@ -3718,10 +3438,7 @@ class BlockingConnectionPool(ConnectionPool):
 
     def _get_in_use_connections(self):
         with self._lock:
-            # free connections
             connections_in_queue = {conn for conn in self.pool.queue if conn}
-            # in self._connections we keep all created connections
-            # so the ones that are not in the queue are the in use ones
             return {
                 conn for conn in self._connections if conn not in connections_in_queue
             }

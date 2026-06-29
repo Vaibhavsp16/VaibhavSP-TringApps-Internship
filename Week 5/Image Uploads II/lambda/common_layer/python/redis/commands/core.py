@@ -4,7 +4,6 @@ import datetime
 import hashlib
 import inspect
 
-# Try to import the xxhash library as an optional dependency
 try:
     import xxhash
 
@@ -478,8 +477,6 @@ class ACLCommands(CommandsProtocol):
             )
 
         if passwords:
-            # as most users will have only one password, allow remove_passwords
-            # to be specified as a simple string or a list
             passwords = list_or_args(passwords, [])
             for i, password in enumerate(passwords):
                 password = encoder.encode(password)
@@ -494,8 +491,6 @@ class ACLCommands(CommandsProtocol):
                     )
 
         if hashed_passwords:
-            # as most users will have only one password, allow remove_passwords
-            # to be specified as a simple string or a list
             hashed_passwords = list_or_args(hashed_passwords, [])
             for i, hashed_password in enumerate(hashed_passwords):
                 hashed_password = encoder.encode(hashed_password)
@@ -515,7 +510,6 @@ class ACLCommands(CommandsProtocol):
         if categories:
             for category in categories:
                 category = encoder.encode(category)
-                # categories can be prefixed with one of (+@, +, -@, -)
                 if category.startswith(b"+@"):
                     pieces.append(category)
                 elif category.startswith(b"+"):
@@ -1278,10 +1272,6 @@ class ManagementCommands(CommandsProtocol):
 
     def client_no_touch(self, mode: str) -> (bytes | str) | Awaitable[bytes | str]:
         """
-        # The command controls whether commands sent by the client will alter
-        # the LRU/LFU of the keys they access.
-        # When turned on, the current client will not change LFU/LRU stats,
-        # unless it sends the TOUCH command.
 
         For more information, see https://redis.io/commands/client-no-touch
         """
@@ -2118,7 +2108,6 @@ class ManagementCommands(CommandsProtocol):
         try:
             self.execute_command(*args, **kwargs)
         except ConnectionError:
-            # a ConnectionError here is expected
             return
         raise RedisError("SHUTDOWN seems to have failed.")
 
@@ -2342,23 +2331,18 @@ class ManagementCommands(CommandsProtocol):
         """
         args: List[Union[str, int]] = ["HOTKEYS", "START"]
 
-        # Add METRICS
         args.extend(["METRICS", len(metrics)])
         args.extend([str(m.value) for m in metrics])
 
-        # Add COUNT
         if count is not None:
             args.extend(["COUNT", count])
 
-        # Add optional DURATION
         if duration is not None:
             args.extend(["DURATION", duration])
 
-        # Add optional SAMPLE ratio
         if sample_ratio is not None:
             args.extend(["SAMPLE", sample_ratio])
 
-        # Add optional SLOTS
         if slots is not None:
             args.append("SLOTS")
             args.append(len(slots))
@@ -2473,7 +2457,6 @@ class AsyncManagementCommands(ManagementCommands):
         try:
             await self.execute_command(*args, **kwargs)
         except ConnectionError:
-            # a ConnectionError here is expected
             return
         raise RedisError("SHUTDOWN seems to have failed.")
 
@@ -2492,7 +2475,6 @@ class BitFieldOperation:
         self.client = client
         self.key = key
         self._default_overflow = default_overflow
-        # for typing purposes, run the following in constructor and in reset()
         self.operations: list[tuple[EncodableT, ...]] = []
         self._last_overflow = "WRAP"
         self.reset()
@@ -2591,12 +2573,8 @@ class BitFieldOperation:
 
 
 class DataPersistOptions(Enum):
-    # set the value for each provided key to each
-    # provided value only if all do not already exist.
     NX = "NX"
 
-    # set the value for each provided key to each
-    # provided value only if all already exist.
     XX = "XX"
 
 
@@ -2892,8 +2870,8 @@ class BasicKeyCommands(CommandsProtocol):
         name: KeyT,
         ifeq: bytes | str | None = None,
         ifne: bytes | str | None = None,
-        ifdeq: str | None = None,  # hex digest
-        ifdne: str | None = None,  # hex digest
+        ifdeq: str | None = None, 
+        ifdne: str | None = None, 
     ) -> int | Awaitable[int]:
         """
         Conditionally removes the specified key.
@@ -3136,8 +3114,6 @@ class BasicKeyCommands(CommandsProtocol):
 
         local_digest = xxhash.xxh3_64(value).hexdigest()
 
-        # To align with digest, we want to return bytes if decode_responses is False.
-        # The following works because of Python's mixin-based client class hierarchy.
         if not self.get_encoder().decode_responses:
             local_digest = local_digest.encode()
 
@@ -3176,7 +3152,6 @@ class BasicKeyCommands(CommandsProtocol):
         Requires Redis 8.4 or greater.
         For more information, see https://redis.io/commands/digest
         """
-        # Bulk string response is already handled (bytes/str based on decode_responses)
         return self.execute_command("DIGEST", name)
 
     @overload
@@ -4199,8 +4174,8 @@ class BasicKeyCommands(CommandsProtocol):
         pxat: AbsExpiryT | None = None,
         ifeq: bytes | str | None = None,
         ifne: bytes | str | None = None,
-        ifdeq: str | None = None,  # hex digest of current value
-        ifdne: str | None = None,  # hex digest of current value
+        ifdeq: str | None = None, 
+        ifdne: str | None = None, 
     ) -> (bool | str | bytes | None) | Awaitable[bool | str | bytes | None]:
         """
         Set the value at key ``name`` to ``value``
@@ -4271,7 +4246,6 @@ class BasicKeyCommands(CommandsProtocol):
                 "and ``keepttl`` are mutually exclusive."
             )
 
-        # Enforce mutual exclusivity among all conditional switches.
         if not at_most_one_value_set(
             (
                 nx,
@@ -4289,7 +4263,6 @@ class BasicKeyCommands(CommandsProtocol):
         pieces: list[EncodableT] = [name, value]
         options = {}
 
-        # Conditional modifier (exactly one at most)
         if nx:
             pieces.append("NX")
         elif xx:
@@ -4471,7 +4444,6 @@ class BasicKeyCommands(CommandsProtocol):
 
         For more information, see https://redis.io/commands/stralgo
         """
-        # check validity
         supported_algo = ["LCS"]
         if algo not in supported_algo:
             supported_algos_str = ", ".join(supported_algo)
@@ -5292,10 +5264,6 @@ class ListCommands(CommandsProtocol):
         if start is not None and num is not None:
             pieces.extend([b"LIMIT", start, num])
         if get is not None:
-            # If get is a string assume we want to get a single value.
-            # Otherwise assume it's an iterable and we want to get multiple
-            # values. We can't just iterate blindly because strings are
-            # iterable.
             if isinstance(get, (bytes, str)):
                 pieces.extend([b"GET", get])
             else:
@@ -7563,21 +7531,18 @@ class StreamCommands(CommandsProtocol):
                 "XPENDING must be provided with min, max "
                 "and count parameters, or none of them."
             )
-        # idle
         try:
             if int(idle) < 0:
                 raise DataError("XPENDING idle must be a integer >= 0")
             pieces.extend(["IDLE", idle])
         except TypeError:
             pass
-        # count
         try:
             if int(count) < 0:
                 raise DataError("XPENDING count must be a integer >= 0")
             pieces.extend([min, max, count])
         except TypeError:
             pass
-        # consumername
         if consumername:
             pieces.append(consumername)
 
@@ -7688,7 +7653,6 @@ class StreamCommands(CommandsProtocol):
         response = self.execute_command("XREAD", *pieces, keys=keys)
 
         if inspect.iscoroutine(response):
-            # Async client - wrap in coroutine that awaits and records
             async def _record_and_return():
                 actual_response = await response
 
@@ -7697,7 +7661,6 @@ class StreamCommands(CommandsProtocol):
 
             return _record_and_return()
         else:
-            # Sync client
             record_streaming_lag_from_response(response=response)
             return response
 
@@ -7786,7 +7749,6 @@ class StreamCommands(CommandsProtocol):
         response = self.execute_command("XREADGROUP", *pieces, **options)
 
         if inspect.iscoroutine(response):
-            # Async client - wrap in coroutine that awaits and records
             async def _record_and_return():
                 actual_response = await response
 
@@ -7798,7 +7760,6 @@ class StreamCommands(CommandsProtocol):
 
             return _record_and_return()
         else:
-            # Sync client
             record_streaming_lag_from_response(
                 response=response,
                 consumer_group=groupname,
@@ -8642,8 +8603,6 @@ class SortedSetCommands(CommandsProtocol):
 
         For more information, see https://redis.io/commands/zrange
         """
-        # Need to support ``desc`` also when using old redis version
-        # because it was supported in 3.5.3 (of redis-py)
         if not byscore and not bylex and (offset is None and num is None) and desc:
             return self.zrevrange(name, start, end, withscores, score_cast_func)
 
@@ -9413,12 +9372,8 @@ AsyncHyperlogCommands = HyperlogCommands
 
 
 class HashDataPersistOptions(Enum):
-    # set the value for each provided key to each
-    # provided value only if all do not already exist.
     FNX = "FNX"
 
-    # set the value for each provided key to each
-    # provided value only if all already exist.
     FXX = "FXX"
 
 
@@ -10489,11 +10444,8 @@ class Script:
     ):
         self.registered_client = registered_client
         self.script = script
-        # Precalculate and store the SHA1 hex digest of the script.
 
         if isinstance(script, str):
-            # We need the encoding from the client in order to generate an
-            # accurate byte representation of the script
             encoder = self.get_encoder()
             script = encoder.encode(script)
         self.sha = hashlib.sha1(script).hexdigest()
@@ -10510,18 +10462,13 @@ class Script:
         if client is None:
             client = self.registered_client
         args = tuple(keys) + tuple(args)
-        # make sure the Redis server knows about the script
         from redis.client import Pipeline
 
         if isinstance(client, Pipeline):
-            # Make sure the pipeline can register the script before executing.
             client.scripts.add(self)
         try:
             return client.evalsha(self.sha, len(keys), *args)
         except NoScriptError:
-            # Maybe the client is pointed to a different server than the client
-            # that created this instance?
-            # Overwrite the sha just in case there was a discrepancy.
             self.sha = client.script_load(self.script)
             return client.evalsha(self.sha, len(keys), *args)
 
@@ -10530,17 +10477,6 @@ class Script:
         try:
             return self.registered_client.get_encoder()
         except AttributeError:
-            # DEPRECATED
-            # In version <=4.1.2, this was the code we used to get the encoder.
-            # However, after 4.1.2 we added support for scripting in clustered
-            # redis. ClusteredRedis doesn't have a `.connection_pool` attribute
-            # so we changed the Script class to use
-            # `self.registered_client.get_encoder` (see above).
-            # However, that is technically a breaking change, as consumers who
-            # use Scripts directly might inject a `registered_client` that
-            # doesn't have a `.get_encoder` field. This try/except prevents us
-            # from breaking backward-compatibility. Ideally, it would be
-            # removed in the next major release.
             return self.registered_client.connection_pool.get_encoder()
 
 
@@ -10558,15 +10494,11 @@ class AsyncScript:
     ):
         self.registered_client = registered_client
         self.script = script
-        # Precalculate and store the SHA1 hex digest of the script.
 
         if isinstance(script, str):
-            # We need the encoding from the client in order to generate an
-            # accurate byte representation of the script
             try:
                 encoder = registered_client.connection_pool.get_encoder()
             except AttributeError:
-                # Cluster
                 encoder = registered_client.get_encoder()
             script = encoder.encode(script)
         self.sha = hashlib.sha1(script).hexdigest()
@@ -10585,18 +10517,13 @@ class AsyncScript:
         if client is None:
             client = self.registered_client
         args = tuple(keys) + tuple(args)
-        # make sure the Redis server knows about the script
         from redis.asyncio.client import Pipeline
 
         if isinstance(client, Pipeline):
-            # Make sure the pipeline can register the script before executing.
             client.scripts.add(self)
         try:
             return await client.evalsha(self.sha, len(keys), *args)
         except NoScriptError:
-            # Maybe the client is pointed to a different server than the client
-            # that created this instance?
-            # Overwrite the sha just in case there was a discrepancy.
             self.sha = await client.script_load(self.script)
             return await client.evalsha(self.sha, len(keys), *args)
 
@@ -10954,7 +10881,6 @@ class ScriptCommands(CommandsProtocol):
         For more information, see  https://redis.io/commands/script-flush
         """
 
-        # Redis pre 6 had no sync_type.
         if sync_type not in ["SYNC", "ASYNC", None]:
             raise DataError(
                 "SCRIPT FLUSH defaults to SYNC in redis > 6.2, or "
@@ -11599,7 +11525,6 @@ class GeoCommands(CommandsProtocol):
     ) -> ResponseT:
         pieces = list(args)
 
-        # FROMMEMBER or FROMLONLAT
         if kwargs["member"] is None:
             if kwargs["longitude"] is None or kwargs["latitude"] is None:
                 raise DataError("GEOSEARCH must have member or longitude and latitude")
@@ -11612,7 +11537,6 @@ class GeoCommands(CommandsProtocol):
         if kwargs["longitude"] is not None and kwargs["latitude"] is not None:
             pieces.extend([b"FROMLONLAT", kwargs["longitude"], kwargs["latitude"]])
 
-        # BYRADIUS or BYBOX
         if kwargs["radius"] is None:
             if kwargs["width"] is None or kwargs["height"] is None:
                 raise DataError("GEOSEARCH must have radius or width and height")
@@ -11629,7 +11553,6 @@ class GeoCommands(CommandsProtocol):
         if kwargs["width"] and kwargs["height"]:
             pieces.extend([b"BYBOX", kwargs["width"], kwargs["height"], kwargs["unit"]])
 
-        # sort
         if kwargs["sort"]:
             if kwargs["sort"].upper() == "ASC":
                 pieces.append(b"ASC")
@@ -11638,7 +11561,6 @@ class GeoCommands(CommandsProtocol):
             else:
                 raise DataError("GEOSEARCH invalid sort")
 
-        # count any
         if kwargs["count"]:
             pieces.extend([b"COUNT", kwargs["count"]])
             if kwargs["any"]:
@@ -11646,7 +11568,6 @@ class GeoCommands(CommandsProtocol):
         elif kwargs["any"]:
             raise DataError("GEOSEARCH ``any`` can't be provided without count")
 
-        # other properties
         for arg_name, byte_repr in (
             ("withdist", b"WITHDIST"),
             ("withcoord", b"WITHCOORD"),

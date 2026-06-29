@@ -16,14 +16,10 @@ def timestamp_to_datetime(response):
 
 def parse_debug_object(response):
     "Parse the results of Redis's DEBUG OBJECT command into a Python dict"
-    # The 'type' of the object is the first item in the response, but isn't
-    # prefixed with a name
     response = str_if_bytes(response)
     response = "type:" + response
     response = dict(kv.split(":") for kv in response.split())
 
-    # parse some expected int values from the string response
-    # note: this cmd isn't spec'd so these may not appear in all redis versions
     int_fields = ("refcount", "serializedlength", "lru", "lru_seconds_idle")
     for field in int_fields:
         if field in response:
@@ -63,21 +59,15 @@ def parse_info(response):
     for line in response.splitlines():
         if line and not line.startswith("#"):
             if line.find(":") != -1:
-                # Split, the info fields keys and values.
-                # Note that the value may contain ':'. but the 'host:'
-                # pseudo-command is the only case where the key contains ':'
                 key, value = line.split(":", 1)
                 if key == "cmdstat_host":
                     key, value = line.rsplit(":", 1)
 
                 if key == "module":
-                    # Hardcode a list for key 'modules' since there could be
-                    # multiple lines that started with 'module'
                     info.setdefault("modules", []).append(get_value(value))
                 else:
                     info[key] = get_value(value)
             else:
-                # if the line isn't splittable, append it to the "__raw__" key
                 info.setdefault("__raw__", []).append(line)
 
     return info
@@ -316,8 +306,6 @@ def pairs_to_dict(response, decode_keys=False, decode_string_values=False):
     if response is None:
         return {}
     if decode_keys or decode_string_values:
-        # the iter form is faster, but I don't know how to make that work
-        # with a str_if_bytes() map
         keys = response[::2]
         if decode_keys:
             keys = map(str_if_bytes, keys)
@@ -338,8 +326,6 @@ def pairs_to_dict_typed(response, type_info):
             try:
                 value = type_info[key](value)
             except Exception:
-                # if for some reason the value can't be coerced, just use
-                # the string value
                 pass
         result[key] = value
     return result
@@ -894,13 +880,10 @@ def parse_client_list(response, **options):
         last_key = None
         for token in tokens:
             if "=" in token:
-                # Values might contain '='
                 key, value = token.split("=", 1)
                 client_dict[key] = value
                 last_key = key
             else:
-                # Values may include spaces. For instance, when running Redis via a Unix socket — such as
-                # "/tmp/redis sock/redis.sock" — the addr or laddr field will include a space.
                 client_dict[last_key] += " " + token
 
         if client_dict:
@@ -962,7 +945,6 @@ def parse_zscan_unified(response, **options):
 
 
 def parse_zmscore(response, **options):
-    # zmscore: list of scores (double precision floating point number) or nil
     return [float(score) if score is not None else None for score in response]
 
 
@@ -971,13 +953,9 @@ def parse_slowlog_get(response, **options):
 
     def parse_item(item):
         result = {"id": item[0], "start_time": int(item[1]), "duration": int(item[2])}
-        # Redis Enterprise injects another entry at index [3], which has
-        # the complexity info (i.e. the value N in case the command has
-        # an O(N) complexity) instead of the command.
         if isinstance(item[3], list):
             result["command"] = space.join(item[3])
 
-            # These fields are optional, depends on environment.
             if len(item) >= 6:
                 result["client_address"] = item[4]
                 result["client_name"] = item[5]
@@ -985,7 +963,6 @@ def parse_slowlog_get(response, **options):
             result["complexity"] = item[3]
             result["command"] = space.join(item[4])
 
-            # These fields are optional, depends on environment.
             if len(item) >= 7:
                 result["client_address"] = item[5]
                 result["client_name"] = item[6]
@@ -1118,8 +1095,8 @@ def _parse_slots(slot_ranges):
 
 def parse_cluster_nodes(response, **options):
     """
-    @see: https://redis.io/commands/cluster-nodes  # string / bytes
-    @see: https://redis.io/commands/cluster-replicas # list of string / bytes
+    @see: https://redis.io/commands/cluster-nodes 
+    @see: https://redis.io/commands/cluster-replicas
     """
     if isinstance(response, (str, bytes)):
         response = response.splitlines()
@@ -1133,11 +1110,8 @@ def parse_geosearch_generic(response, **options):
     """
     try:
         if options["store"] or options["store_dist"]:
-            # `store` and `store_dist` can't be combined
-            # with other command arguments.
-            # relevant to 'GEORADIUS' and 'GEORADIUSBYMEMBER'
             return response
-    except KeyError:  # it means the command was sent via execute_command
+    except KeyError: 
         return response
 
     if not isinstance(response, list):
@@ -1146,7 +1120,6 @@ def parse_geosearch_generic(response, **options):
         response_list = response
 
     if not options["withdist"] and not options["withcoord"] and not options["withhash"]:
-        # just a bunch of places
         return response_list
 
     cast = {
@@ -1155,8 +1128,6 @@ def parse_geosearch_generic(response, **options):
         "withhash": int,
     }
 
-    # zip all output results with each casting function to get
-    # the properly native Python value.
     f = [lambda x: x]
     f += [cast[o] for o in ["withdist", "withhash", "withcoord"] if options[o]]
     return [list(map(lambda fv: fv[0](fv[1]), zip(f, r))) for r in response_list]
@@ -1270,7 +1241,6 @@ def parse_acl_getuser(response, **options):
     else:
         data = {str_if_bytes(key): value for key, value in response.items()}
 
-    # convert everything but user-defined data in 'keys' to native strings
     data["flags"] = list(map(str_if_bytes, data["flags"]))
     data["passwords"] = list(map(str_if_bytes, data["passwords"]))
     data["commands"] = str_if_bytes(data["commands"])
@@ -1294,7 +1264,6 @@ def parse_acl_getuser(response, **options):
                 for selector in data["selectors"]
             ]
 
-    # split 'commands' into separate 'categories' and 'commands' lists
     commands, categories = [], []
     for command in data["commands"].split(" "):
         categories.append(command) if "@" in command else commands.append(command)
@@ -1315,7 +1284,6 @@ def parse_acl_log(response, **options):
             client_info = log_data.get("client-info", "")
             log_data["client-info"] = parse_client_info(client_info)
 
-            # float() is lossy comparing to the "double" in C
             log_data["age-seconds"] = float(log_data["age-seconds"])
             data.append(log_data)
     else:
@@ -1418,7 +1386,6 @@ def parse_client_info(value):
         key, value = info.split("=")
         client_info[key] = value
 
-    # Those fields are defined as int in networking.c
     for int_key in {
         "id",
         "age",
@@ -1448,8 +1415,6 @@ def parse_set_result(response, **options):
     - String when GET argument is used
     """
     if options.get("get"):
-        # Redis will return a getCommand result.
-        # See `setGenericCommand` in t_string.c
         return response
     return response and str_if_bytes(response) == "OK"
 
@@ -1548,16 +1513,7 @@ def string_keys_to_dict(key_string, callback):
     return dict.fromkeys(key_string.split(), callback)
 
 
-# The command-to-callback mapping dictionaries (``_RedisCallbacks``,
-# ``_RedisCallbacksRESP2``, ``_RedisCallbacksRESP3``, …) and the
-# ``get_response_callbacks`` selector live in
-# ``redis/_parsers/response_callbacks.py``. They are re-exported below for
-# backward compatibility so existing imports of the form
-# ``from redis._parsers.helpers import _RedisCallbacks`` keep working. The
-# import is placed at module bottom to avoid a circular import (the
-# response_callbacks module imports parser helpers defined above).
-# isort: off
-from .response_callbacks import (  # noqa: E402, F401
+from .response_callbacks import ( 
     _RedisCallbacks,
     _RedisCallbacksRESP2,
     _RedisCallbacksRESP2Unified,
@@ -1566,4 +1522,3 @@ from .response_callbacks import (  # noqa: E402, F401
     _RedisCallbacksRESP3toRESP2Legacy,
     get_response_callbacks,
 )
-# isort: on

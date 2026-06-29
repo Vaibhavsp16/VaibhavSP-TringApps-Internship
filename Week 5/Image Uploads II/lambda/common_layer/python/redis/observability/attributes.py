@@ -18,35 +18,28 @@ if TYPE_CHECKING:
     from redis.connection import ConnectionPoolInterface
     from redis.multidb.database import SyncDatabase
 
-# Database semantic convention attributes
 DB_SYSTEM = "db.system"
 DB_NAMESPACE = "db.namespace"
 DB_OPERATION_NAME = "db.operation.name"
 DB_RESPONSE_STATUS_CODE = "db.response.status_code"
 DB_STORED_PROCEDURE_NAME = "db.stored_procedure.name"
 
-# Error attributes
 ERROR_TYPE = "error.type"
 
-# Network attributes
 NETWORK_PEER_ADDRESS = "network.peer.address"
 NETWORK_PEER_PORT = "network.peer.port"
 
-# Server attributes
 SERVER_ADDRESS = "server.address"
 SERVER_PORT = "server.port"
 
-# Connection pool attributes
 DB_CLIENT_CONNECTION_POOL_NAME = "db.client.connection.pool.name"
 DB_CLIENT_CONNECTION_STATE = "db.client.connection.state"
 DB_CLIENT_CONNECTION_NAME = "db.client.connection.name"
 
-# Geofailover attributes
 DB_CLIENT_GEOFAILOVER_FAIL_FROM = "db.client.geofailover.fail_from"
 DB_CLIENT_GEOFAILOVER_FAIL_TO = "db.client.geofailover.fail_to"
 DB_CLIENT_GEOFAILOVER_REASON = "db.client.geofailover.reason"
 
-# Redis-specific attributes
 REDIS_CLIENT_LIBRARY = "redis.client.library"
 REDIS_CLIENT_CONNECTION_PUBSUB = "redis.client.connection.pubsub"
 REDIS_CLIENT_CONNECTION_CLOSE_REASON = "redis.client.connection.close.reason"
@@ -130,7 +123,7 @@ class AttributeBuilder:
     @staticmethod
     def build_operation_attributes(
         command_name: Optional[Union[str, bytes]] = None,
-        batch_size: Optional[int] = None,  # noqa
+        batch_size: Optional[int] = None, 
         network_peer_address: Optional[str] = None,
         network_peer_port: Optional[int] = None,
         stored_procedure_name: Optional[str] = None,
@@ -155,7 +148,6 @@ class AttributeBuilder:
         attrs: Dict[str, Any] = {}
 
         if command_name is not None:
-            # Ensure command_name is a string (it can be bytes from args[0])
             if isinstance(command_name, bytes):
                 command_name = command_name.decode("utf-8", errors="replace")
             attrs[DB_OPERATION_NAME] = command_name.upper()
@@ -282,7 +274,7 @@ class AttributeBuilder:
     def build_streaming_attributes(
         stream_name: Optional[str] = None,
         consumer_group: Optional[str] = None,
-        consumer_name: Optional[str] = None,  # noqa
+        consumer_name: Optional[str] = None, 
     ) -> Dict[str, Any]:
         """
         Build attributes for a streaming operation.
@@ -401,7 +393,6 @@ def get_pool_name(pool: Union["ConnectionPoolInterface", "ConnectionPool"]) -> s
     host = pool.connection_kwargs.get("host", "unknown")
     port = pool.connection_kwargs.get("port", 6379)
 
-    # Get unique pool ID if available (added for observability)
     pool_id = getattr(pool, "_pool_id", "")
 
     if pool_id:

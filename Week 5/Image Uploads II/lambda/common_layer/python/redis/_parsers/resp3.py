@@ -51,8 +51,6 @@ class _RESP3Parser(_RESPBase, PushNotificationsParser):
                 try:
                     self._buffer.purge()
                 except AttributeError:
-                    # Buffer may have been set to None by another thread after
-                    # the check above; result is still valid so we don't raise
                     pass
             return result
 
@@ -68,61 +66,39 @@ class _RESP3Parser(_RESPBase, PushNotificationsParser):
 
         byte, response = raw[:1], raw[1:]
 
-        # server returned an error
         if byte in (b"-", b"!"):
             if byte == b"!":
                 response = self._buffer.read(int(response), timeout=timeout)
             response = response.decode("utf-8", errors="replace")
             error = self.parse_error(response)
-            # if the error is a ConnectionError, raise immediately so the user
-            # is notified
             if isinstance(error, ConnectionError):
                 raise error
-            # otherwise, we're dealing with a ResponseError that might belong
-            # inside a pipeline response. the connection's read_response()
-            # and/or the pipeline's execute() will raise this error if
-            # necessary, so just return the exception instance here.
             return error
-        # single value
         elif byte == b"+":
             pass
-        # null value
         elif byte == b"_":
             return None
-        # int and big int values
         elif byte in (b":", b"("):
             return int(response)
-        # double value
         elif byte == b",":
             return float(response)
-        # bool value
         elif byte == b"#":
             return response == b"t"
-        # bulk response
         elif byte == b"$":
             response = self._buffer.read(int(response), timeout=timeout)
-        # verbatim string response
         elif byte == b"=":
             response = self._buffer.read(int(response), timeout=timeout)[4:]
-        # array response
         elif byte == b"*":
             response = [
                 self._read_response(disable_decoding=disable_decoding, timeout=timeout)
                 for _ in range(int(response))
             ]
-        # set response
         elif byte == b"~":
-            # redis can return unhashable types (like dict) in a set,
-            # so we return sets as list, all the time, for predictability
             response = [
                 self._read_response(disable_decoding=disable_decoding, timeout=timeout)
                 for _ in range(int(response))
             ]
-        # map response
         elif byte == b"%":
-            # We cannot use a dict-comprehension to parse stream.
-            # Evaluation order of key:val expression in dict comprehension only
-            # became defined to be left-right in version 3.8
             resp_dict = {}
             for _ in range(int(response)):
                 key = self._read_response(
@@ -134,7 +110,6 @@ class _RESP3Parser(_RESPBase, PushNotificationsParser):
                     timeout=timeout,
                 )
             response = resp_dict
-        # push response
         elif byte == b">":
             response = [
                 self._read_response(
@@ -146,7 +121,6 @@ class _RESP3Parser(_RESPBase, PushNotificationsParser):
             ]
             response = self.handle_push_response(response)
 
-            # if this is a push request return the push response
             if push_request:
                 return response
 
@@ -178,14 +152,12 @@ class _AsyncRESP3Parser(_AsyncRESPBase, AsyncPushNotificationsParser):
         self, disable_decoding: bool = False, push_request: bool = False
     ):
         if self._chunks:
-            # augment parsing buffer with previously read data
             self._buffer += b"".join(self._chunks)
             self._chunks.clear()
         self._pos = 0
         response = await self._read_response(
             disable_decoding=disable_decoding, push_request=push_request
         )
-        # Successfully parsing a response allows us to clear our parsing buffer
         self._clear()
         return response
 
@@ -198,65 +170,41 @@ class _AsyncRESP3Parser(_AsyncRESPBase, AsyncPushNotificationsParser):
         response: Any
         byte, response = raw[:1], raw[1:]
 
-        # if byte not in (b"-", b"+", b":", b"$", b"*"):
-        #     raise InvalidResponse(f"Protocol Error: {raw!r}")
 
-        # server returned an error
         if byte in (b"-", b"!"):
             if byte == b"!":
                 response = await self._read(int(response))
             response = response.decode("utf-8", errors="replace")
             error = self.parse_error(response)
-            # if the error is a ConnectionError, raise immediately so the user
-            # is notified
             if isinstance(error, ConnectionError):
-                self._clear()  # Successful parse
+                self._clear() 
                 raise error
-            # otherwise, we're dealing with a ResponseError that might belong
-            # inside a pipeline response. the connection's read_response()
-            # and/or the pipeline's execute() will raise this error if
-            # necessary, so just return the exception instance here.
             return error
-        # single value
         elif byte == b"+":
             pass
-        # null value
         elif byte == b"_":
             return None
-        # int and big int values
         elif byte in (b":", b"("):
             return int(response)
-        # double value
         elif byte == b",":
             return float(response)
-        # bool value
         elif byte == b"#":
             return response == b"t"
-        # bulk response
         elif byte == b"$":
             response = await self._read(int(response))
-        # verbatim string response
         elif byte == b"=":
             response = (await self._read(int(response)))[4:]
-        # array response
         elif byte == b"*":
             response = [
                 (await self._read_response(disable_decoding=disable_decoding))
                 for _ in range(int(response))
             ]
-        # set response
         elif byte == b"~":
-            # redis can return unhashable types (like dict) in a set,
-            # so we always convert to a list, to have predictable return types
             response = [
                 (await self._read_response(disable_decoding=disable_decoding))
                 for _ in range(int(response))
             ]
-        # map response
         elif byte == b"%":
-            # We cannot use a dict-comprehension to parse stream.
-            # Evaluation order of key:val expression in dict comprehension only
-            # became defined to be left-right in version 3.8
             resp_dict = {}
             for _ in range(int(response)):
                 key = await self._read_response(disable_decoding=disable_decoding)
@@ -264,7 +212,6 @@ class _AsyncRESP3Parser(_AsyncRESPBase, AsyncPushNotificationsParser):
                     disable_decoding=disable_decoding, push_request=push_request
                 )
             response = resp_dict
-        # push response
         elif byte == b">":
             response = [
                 (

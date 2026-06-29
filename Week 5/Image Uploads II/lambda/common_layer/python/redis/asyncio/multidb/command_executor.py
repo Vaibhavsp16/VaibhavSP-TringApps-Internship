@@ -302,7 +302,6 @@ class DefaultCommandExecutor(BaseCommandExecutor, AsyncCommandExecutor):
         """
 
         async def wrapper():
-            # On each retry we need to check active database as it might change.
             await self._check_active_database()
             return await callback()
 

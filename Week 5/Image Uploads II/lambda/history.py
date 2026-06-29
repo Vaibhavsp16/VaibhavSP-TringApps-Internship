@@ -25,38 +25,35 @@ def get_redis_client():
 def handler(event, context):
     print("Received history request event:", json.dumps(event))
     
-    # 1. Resolve uploader email from Cognito authorizer claims
     authorizer_claims = event.get('requestContext', {}).get('authorizer', {}).get('claims', {})
-    user_email = authorizer_claims.get('email')
+    user_sub = authorizer_claims.get('sub')
     
-    if not user_email:
+    if not user_sub:
         return {
             'statusCode': 401,
             'headers': {
                 'Content-Type': 'application/json',
                 'Access-Control-Allow-Origin': '*'
             },
-            'body': json.dumps({'error': 'Unauthorized: Cognito email claim is missing'})
+            'body': json.dumps({'error': 'Unauthorized: Cognito subject claim is missing'})
         }
 
     history_list = []
     cache_hit = False
 
-    # 2. Try fetching history from Redis Cache (Speed Layer)
     try:
         r = get_redis_client()
-        cache_key = f"user:history:{user_email}"
+        cache_key = f"user:history:{user_sub}"
         cached_data = r.get(cache_key)
         if cached_data:
             history_list = json.loads(cached_data)
             cache_hit = True
-            print(f"Redis Cache HIT for user: {user_email}")
+            print(f"Redis Cache HIT for user: {user_sub}")
     except Exception as cache_err:
         print(f"Redis lookup failed (falling back to database): {str(cache_err)}")
 
-    # 3. Cache Miss: Fetch from RDS MySQL and write to Redis
     if not cache_hit:
-        print(f"Redis Cache MISS for user: {user_email}. Fetching from RDS...")
+        print(f"Redis Cache MISS for user: {user_sub}. Fetching from RDS...")
         try:
             conn = get_db_connection()
             try:
@@ -69,7 +66,7 @@ def handler(event, context):
                     ORDER BY created_at DESC 
                     LIMIT 5
                     """
-                    cursor.execute(sql, (user_email,))
+                    cursor.execute(sql, (user_sub,))
                     rows = cursor.fetchall()
                     
                     for row in rows:
@@ -82,11 +79,10 @@ def handler(event, context):
                             "timestamp": row["created_at"].strftime('%m/%d/%Y, %I:%M:%S %p UTC') if row["created_at"] else "Unknown"
                         })
                 
-                # Cache the results back to Redis with a 1-hour expiration
                 try:
                     r = get_redis_client()
                     r.set(cache_key, json.dumps(history_list), ex=3600)
-                    print(f"Updated Redis cache for user: {user_email}")
+                    print(f"Updated Redis cache for user: {user_sub}")
                 except Exception as cache_err:
                     print(f"Redis cache update failed (non-blocking): {str(cache_err)}")
                     
@@ -103,7 +99,6 @@ def handler(event, context):
                 'body': json.dumps({'error': f'Failed to retrieve upload history: {str(db_err)}'})
             }
 
-    # 4. Return history array with CORS headers
     return {
         'statusCode': 200,
         'headers': {

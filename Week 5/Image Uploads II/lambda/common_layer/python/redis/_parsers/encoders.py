@@ -16,7 +16,6 @@ class Encoder:
         if isinstance(value, (bytes, bytearray, memoryview)):
             return value
         elif isinstance(value, bool):
-            # special case bool since it is a subclass of int
             raise DataError(
                 "Invalid input of type: 'bool'. Convert to a "
                 "bytes, string, int or float first."
@@ -24,7 +23,6 @@ class Encoder:
         elif isinstance(value, (int, float)):
             value = repr(value).encode()
         elif not isinstance(value, str):
-            # a value we don't know how to deal with. throw an error
             typename = type(value).__name__
             raise DataError(
                 f"Invalid input of type: '{typename}'. "

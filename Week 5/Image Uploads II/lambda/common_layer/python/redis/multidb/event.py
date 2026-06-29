@@ -49,7 +49,6 @@ class ResubscribeOnActiveDatabaseChanged(EventListenerInterface):
         old_pubsub = event.command_executor.active_pubsub
 
         if old_pubsub is not None:
-            # Re-assign old channels and patterns so they will be automatically subscribed on connection.
             new_pubsub = event.new_database.client.pubsub(**event.kwargs)
             new_pubsub.channels = old_pubsub.channels
             new_pubsub.patterns = old_pubsub.patterns

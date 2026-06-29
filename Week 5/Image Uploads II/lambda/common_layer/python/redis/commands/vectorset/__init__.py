@@ -28,8 +28,7 @@ class _VectorSetBase(VectorSetCommands):
 
     def __init__(self, client, **kwargs):
         """Initialize VectorSet client with callbacks."""
-        # Set the module commands' callbacks
-        _MODULE_CALLBACKS = {  # noqa: N806
+        _MODULE_CALLBACKS = { 
             VEMB_CMD: parse_vemb_result,
             VSIM_CMD: parse_vsim_result,
             VGETATTR_CMD: lambda r: r and json.loads(r) or None,

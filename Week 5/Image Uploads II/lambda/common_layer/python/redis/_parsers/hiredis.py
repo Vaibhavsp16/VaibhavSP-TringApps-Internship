@@ -19,32 +19,17 @@ from .socket import (
     SERVER_CLOSED_CONNECTION_ERROR,
 )
 
-# Used to signal that hiredis-py does not have enough data to parse.
-# Using `False` or `None` is not reliable, given that the parser can
-# return `False` or `None` for legitimate reasons from RESP payloads.
 NOT_ENOUGH_DATA = object()
 
-# select.poll() is unavailable on Windows; fall back to selectors there.
 _HAS_POLL = hasattr(select, "poll")
 
 
 def _socket_can_read(sock, timeout: float) -> bool:
-    # SSL sockets can have decrypted bytes buffered above the OS socket layer.
     if hasattr(sock, "pending") and sock.pending():
         return True
-    # timeout=0 must be a non-blocking readiness check only; both branches
-    # below are non-destructive and have no FD_SETSIZE limit (select.select
-    # raises ValueError for fds >= 1024).
     if _HAS_POLL:
-        # Prefer poll() over selectors.DefaultSelector: epoll/kqueue selectors
-        # allocate a file descriptor per check and so fail with EMFILE under
-        # fd exhaustion - the very condition that pushes sockets onto high
-        # fds. poll() allocates nothing.
         poller = select.poll()
         poller.register(sock, select.POLLIN)
-        # poll() takes milliseconds (None blocks forever). POLLHUP/POLLERR/
-        # POLLNVAL are always reported regardless of the registered mask, so
-        # closed or errored sockets still count as readable, like select().
         poll_timeout = None if timeout is None else timeout * 1000
         return bool(poller.poll(poll_timeout))
     with selectors.DefaultSelector() as selector:
@@ -104,7 +89,6 @@ class _HiredisParser(BaseParser, PushNotificationsParser):
         try:
             self._hiredis_PushNotificationType = hiredis.PushNotification
         except AttributeError:
-            # hiredis < 3.2
             self._hiredis_PushNotificationType = None
 
     def on_disconnect(self):
@@ -112,8 +96,6 @@ class _HiredisParser(BaseParser, PushNotificationsParser):
         self._reader = None
 
     def can_read(self, timeout: float = 0) -> bool:
-        # TODO: Rename this API; it detects pending data or dirty/closed
-        # connection state, not only whether application data can be read.
         if not self._reader:
             raise ConnectionError(SERVER_CLOSED_CONNECTION_ERROR)
 
@@ -131,18 +113,12 @@ class _HiredisParser(BaseParser, PushNotificationsParser):
             if bufflen == 0:
                 raise ConnectionError(SERVER_CLOSED_CONNECTION_ERROR)
             self._reader.feed(self._buffer, 0, bufflen)
-            # data was read from the socket and added to the buffer.
-            # return True to indicate that data was read.
             return True
         except socket.timeout:
             if raise_on_timeout:
                 raise TimeoutError("Timeout reading from socket")
             return False
         except NONBLOCKING_EXCEPTIONS as ex:
-            # if we're in nonblocking mode and the recv raises a
-            # blocking error, simply return False indicating that
-            # there's no data to be read. otherwise raise the
-            # original exception.
             allowed = NONBLOCKING_EXCEPTION_ERROR_NUMBERS.get(ex.__class__, -1)
             if ex.errno == allowed:
                 if not raise_on_timeout:
@@ -174,9 +150,6 @@ class _HiredisParser(BaseParser, PushNotificationsParser):
                 response = self._reader.gets(False)
             else:
                 response = self._reader.gets()
-        # if the response is a ConnectionError or the response is a list and
-        # the first item is a ConnectionError, raise it as something bad
-        # happened
         if isinstance(response, ConnectionError):
             raise response
         elif self._hiredis_PushNotificationType is not None and isinstance(
@@ -240,7 +213,6 @@ class _AsyncHiredisParser(AsyncBaseParser, AsyncPushNotificationsParser):
                 hiredis, "PushNotification", None
             )
         except AttributeError:
-            # hiredis < 3.2
             self._hiredis_PushNotificationType = None
 
     def on_disconnect(self):
@@ -253,16 +225,10 @@ class _AsyncHiredisParser(AsyncBaseParser, AsyncPushNotificationsParser):
         return await self.can_read()
 
     async def can_read(self) -> bool:
-        # TODO: Rename this API; it detects pending data or dirty/closed
-        # connection state, not only whether application data can be read.
         if not self._connected:
             raise OSError("Buffer is closed.")
-        # EOF means the connection is closed and not safe to reuse.
         if self._reader.has_data() or self._stream.at_eof():
             return True
-        # asyncio.StreamReader has no public non-destructive API for checking
-        # buffered bytes. Preserve dirty-connection detection for hiredis; tests
-        # with a real StreamReader guard this private buffer API in CI.
         return bool(self._stream._buffer)
 
     async def read_from_socket(self):
@@ -270,16 +236,11 @@ class _AsyncHiredisParser(AsyncBaseParser, AsyncPushNotificationsParser):
         if not buffer or not isinstance(buffer, bytes):
             raise ConnectionError(SERVER_CLOSED_CONNECTION_ERROR) from None
         self._reader.feed(buffer)
-        # data was read from the socket and added to the buffer.
-        # return True to indicate that data was read.
         return True
 
     async def read_response(
         self, disable_decoding: bool = False, push_request: bool = False
     ) -> Union[EncodableT, List[EncodableT]]:
-        # If `on_disconnect()` has been called, prohibit any more reads
-        # even if they could happen because data might be present.
-        # We still allow reads in progress to finish
         if not self._connected:
             raise ConnectionError(SERVER_CLOSED_CONNECTION_ERROR) from None
 
@@ -295,9 +256,6 @@ class _AsyncHiredisParser(AsyncBaseParser, AsyncPushNotificationsParser):
             else:
                 response = self._reader.gets()
 
-        # if the response is a ConnectionError or the response is a list and
-        # the first item is a ConnectionError, raise it as something bad
-        # happened
         if isinstance(response, ConnectionError):
             raise response
         elif self._hiredis_PushNotificationType is not None and isinstance(

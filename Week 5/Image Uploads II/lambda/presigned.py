@@ -68,7 +68,7 @@ def handler(event, context):
         
     file_name = payload.get('filename')
     content_type = payload.get('contentType', 'image/jpeg')
-    thumbnail_base64 = payload.get('thumbnail') # Client-side generated Base64 thumbnail
+    thumbnail_base64 = payload.get('thumbnail')
     
     if not file_name:
         return {
@@ -77,13 +77,13 @@ def handler(event, context):
         }
         
     authorizer_claims = event.get('requestContext', {}).get('authorizer', {}).get('claims', {})
+    user_sub = authorizer_claims.get('sub', 'unknown-user-sub')
     user_email = authorizer_claims.get('email', 'unknown-user@example.com')
     
     image_id = str(uuid.uuid4())
     unique_key = f"{image_id}-{file_name}"
     
     try:
-        # 1. Insert initial pending record into RDS database with the Base64 thumbnail
         conn = get_db_connection()
         try:
             with conn.cursor() as cursor:
@@ -91,21 +91,19 @@ def handler(event, context):
                 INSERT INTO images (image_id, user_id, original_name, s3_raw_key, status, thumbnail_base64, created_at, updated_at)
                 VALUES (%s, %s, %s, %s, 'PENDING', %s, NOW(), NOW())
                 """
-                cursor.execute(sql, (image_id, user_email, file_name, unique_key, thumbnail_base64))
+                cursor.execute(sql, (image_id, user_sub, file_name, unique_key, thumbnail_base64))
             conn.commit()
             print(f"Created pending record in RDS for {image_id}")
         finally:
             conn.close()
             
-        # 2. Invalidate cache in Redis for this user's history
         try:
             r = get_redis_client()
-            r.delete(f"user:history:{user_email}")
-            print(f"Invalidated Redis cache for user: {user_email}")
+            r.delete(f"user:history:{user_sub}")
+            print(f"Invalidated Redis cache for user: {user_sub}")
         except Exception as cache_err:
             print(f"Redis cache invalidation failed (non-blocking): {str(cache_err)}")
 
-        # 3. Generate the pre-signed S3 upload URL
         presigned_url = s3.generate_presigned_url(
             ClientMethod='put_object',
             Params={
@@ -113,6 +111,7 @@ def handler(event, context):
                 'Key': unique_key,
                 'ContentType': content_type,
                 'Metadata': {
+                    'uploader-sub': user_sub,
                     'uploader-email': user_email,
                     'image-id': image_id
                 }
@@ -131,7 +130,8 @@ def handler(event, context):
                 'uploadUrl': presigned_url,
                 'fileKey': unique_key,
                 'imageId': image_id,
-                'uploaderEmail': user_email
+                'uploaderEmail': user_email,
+                'uploaderSub': user_sub
             })
         }
     except Exception as e:

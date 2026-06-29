@@ -37,15 +37,15 @@ def handler(event, context):
         image_id = body.get('image_id')
         upload_bucket = body['bucket']
         key = body['key']
+        uploader_sub = body.get('uploader_sub', 'unknown-user-sub')
         uploader_email = body['uploader_email']
         labels = body['labels']
         file_size = body.get('file_size', 'Unknown')
         upload_time = body.get('upload_time', 'Unknown')
         
-        print(f"Processing image {key} (ImageID: {image_id}) uploaded by {uploader_email}")
+        print(f"Processing image {key} (ImageID: {image_id}) uploaded by {uploader_email} (Sub: {uploader_sub})")
         
         try:
-            # 1. Copy original object to processed bucket (acts as processing)
             copy_source = {'Bucket': upload_bucket, 'Key': key}
             s3.copy_object(
                 Bucket=PROCESSED_BUCKET,
@@ -54,7 +54,6 @@ def handler(event, context):
             )
             print(f"Copied image {key} to processed bucket: {PROCESSED_BUCKET}")
             
-            # 2. Save metadata sidecar JSON to processed bucket
             analysis_key = f"{key}-analysis.json"
             analysis_data = {
                 "original_file": key,
@@ -71,7 +70,6 @@ def handler(event, context):
             )
             print(f"Saved metadata sidecar: {analysis_key}")
             
-            # 3. Update RDS record to 'COMPLETED'
             if image_id:
                 conn = get_db_connection()
                 try:
@@ -85,7 +83,6 @@ def handler(event, context):
                     conn.commit()
                     print(f"Updated status in RDS to COMPLETED for {image_id}")
                     
-                    # 4. Fetch the updated history from RDS and rebuild the cache in Redis
                     with conn.cursor() as cursor:
                         sql_select = """
                         SELECT image_id as id, original_name as fileName, file_size_bytes as fileSize, 
@@ -95,7 +92,7 @@ def handler(event, context):
                         ORDER BY created_at DESC 
                         LIMIT 5
                         """
-                        cursor.execute(sql_select, (uploader_email,))
+                        cursor.execute(sql_select, (uploader_sub,))
                         rows = cursor.fetchall()
                         
                         history_data = []
@@ -109,11 +106,10 @@ def handler(event, context):
                                 "timestamp": row["created_at"].strftime('%m/%d/%Y, %I:%M:%S %p UTC') if row["created_at"] else "Unknown"
                             })
                             
-                        # Update Redis Cache
                         try:
                             r = get_redis_client()
-                            r.set(f"user:history:{uploader_email}", json.dumps(history_data), ex=3600)
-                            print(f"Updated Redis cache for user: {uploader_email}")
+                            r.set(f"user:history:{uploader_sub}", json.dumps(history_data), ex=3600)
+                            print(f"Updated Redis cache for user: {uploader_sub}")
                         except Exception as cache_err:
                             print(f"Redis cache update failed (non-blocking): {str(cache_err)}")
                             
@@ -122,7 +118,6 @@ def handler(event, context):
                 finally:
                     conn.close()
 
-            # 5. Publish completion message to SNS
             labels_summary = "\n".join([
                 f"- {l['Name']} ({l['Confidence']:.2f}% confidence)"
                 for l in labels
@@ -152,6 +147,29 @@ def handler(event, context):
             
         except Exception as e:
             print(f"Error processing file {key}: {str(e)}")
+            if 'image_id' in locals() and image_id:
+                try:
+                    conn = get_db_connection()
+                    with conn.cursor() as cursor:
+                        sql_fail = """
+                        UPDATE images 
+                        SET status = 'FAILED', updated_at = NOW() 
+                        WHERE image_id = %s
+                        """
+                        cursor.execute(sql_fail, (image_id,))
+                    conn.commit()
+                    print(f"Updated status in RDS to FAILED for {image_id}")
+                    
+                    try:
+                        r = get_redis_client()
+                        r.delete(f"user:history:{uploader_sub}")
+                    except Exception as cache_err:
+                        print(f"Redis cache delete failed: {str(cache_err)}")
+                except Exception as db_err:
+                    print(f"Failed to update database status to FAILED: {str(db_err)}")
+                finally:
+                    if 'conn' in locals() and conn:
+                        conn.close()
             raise e
             
     return {

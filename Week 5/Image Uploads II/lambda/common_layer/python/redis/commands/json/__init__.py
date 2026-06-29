@@ -38,7 +38,6 @@ class _JSONBase(JSONCommands):
         :param encoder:
         :type json.JSONEncoder: An instance of json.JSONEncoder
         """
-        # Set the module commands' callbacks
         _MODULE_CALLBACKS = {
             "JSON.ARRPOP": self._decode,
             "JSON.DEBUG": self._decode,
@@ -71,10 +70,6 @@ class _JSONBase(JSONCommands):
         }
 
         _RESP3_MODULE_CALLBACKS = {}
-        # RESP2 wire normalised to the unified shape from the reverted
-        # unification PR: NUMINCRBY/NUMMULTBY are always arrays,
-        # JSON.RESP uses native floats, and missing JSON.TYPE keys stay
-        # ``None`` instead of becoming ``[None]``.
         _RESP2_UNIFIED_MODULE_CALLBACKS = {
             "JSON.CLEAR": int,
             "JSON.DEL": int,
@@ -87,12 +82,6 @@ class _JSONBase(JSONCommands):
         _RESP3_UNIFIED_MODULE_CALLBACKS = {
             "JSON.TYPE": lambda r: None if r == [None] else r,
         }
-        # RESP3 wire normalised back to today's RESP2 Python shapes:
-        # keep ``nativestr`` for OBJKEYS, unwrap JSON.TYPE one level so
-        # legacy paths return scalars and missing keys return ``None``,
-        # and re-encode native floats inside JSON.RESP back to string
-        # form. NUMINCRBY/NUMMULTBY use the command path captured at the
-        # call site to unwrap legacy paths while preserving JSONPath arrays.
         _RESP3_TO_RESP2_LEGACY_MODULE_CALLBACKS = {
             "JSON.NUMINCRBY": self._decode_resp3_legacy_numop,
             "JSON.NUMMULTBY": self._decode_resp3_legacy_numop,
@@ -341,14 +330,10 @@ class AsyncJSON(_JSONBase):
 
         set_files_result = {}
 
-        # Run blocking os.walk in thread pool
         file_paths = await asyncio.to_thread(_walk_directory, root_folder)
 
         for file_path in file_paths:
             try:
-                # TODO: rsplit(".") splits on all dots, mishandling paths
-                # with dots in directories (e.g. /data/v1.2/file.json).
-                # Should be rsplit(".", 1) — fix in a separate PR.
                 file_name = file_path.rsplit(".")[0]
                 await self.set_file(
                     file_name,

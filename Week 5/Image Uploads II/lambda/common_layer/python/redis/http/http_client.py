@@ -38,9 +38,7 @@ class HttpResponse:
         return json.loads(self.text(encoding=self._get_encoding()))
 
     def _get_encoding(self) -> str:
-        # Try to infer encoding from headers; default to utf-8
         ctype = self.headers.get("content-type", "")
-        # Example: application/json; charset=utf-8
         for part in ctype.split(";"):
             p = part.strip()
             if p.lower().startswith("charset="):
@@ -73,15 +71,13 @@ class HttpClient:
             retries=DEFAULT_RETRY_COUNT,
         ),
         verify_tls: bool = True,
-        # TLS verification (server) options
         ca_file: Optional[str] = None,
         ca_path: Optional[str] = None,
         ca_data: Optional[Union[str, bytes]] = None,
-        # Mutual TLS (client cert) options
         client_cert_file: Optional[str] = None,
         client_key_file: Optional[str] = None,
         client_key_password: Optional[str] = None,
-        auth_basic: Optional[Tuple[str, str]] = None,  # (username, password)
+        auth_basic: Optional[Tuple[str, str]] = None, 
         user_agent: str = DEFAULT_USER_AGENT,
     ) -> None:
         """
@@ -118,7 +114,6 @@ class HttpClient:
         self.retry.update_supported_errors((HTTPError, URLError, ssl.SSLError))
         self.verify_tls = verify_tls
 
-        # TLS settings
         self.ca_file = ca_file
         self.ca_path = ca_path
         self.ca_data = ca_data
@@ -129,7 +124,6 @@ class HttpClient:
         self.auth_basic = auth_basic
         self.user_agent = user_agent
 
-    # Public JSON-centric helpers
     def get(
         self,
         path: str,
@@ -236,7 +230,6 @@ class HttpClient:
             expect_json=expect_json,
         )
 
-    # Low-level request
     def request(
         self,
         method: str,
@@ -257,13 +250,11 @@ class HttpClient:
         context: Optional[ssl.SSLContext] = None
         if url.lower().startswith("https"):
             if self.verify_tls:
-                # Use provided CA material if any; fall back to system defaults
                 context = ssl.create_default_context(
                     cafile=self.ca_file,
                     capath=self.ca_path,
                     cadata=self.ca_data,
                 )
-                # Load client certificate for mTLS if configured
                 if self.client_cert_file:
                     context.load_cert_chain(
                         certfile=self.client_cert_file,
@@ -271,7 +262,6 @@ class HttpClient:
                         password=self.client_key_password,
                     )
             else:
-                # Verification disabled
                 context = ssl.create_default_context()
                 context.check_hostname = False
                 context.verify_mode = ssl.CERT_NONE
@@ -283,7 +273,6 @@ class HttpClient:
                 lambda error: self._is_retryable_http_error(error),
             )
         except HTTPError as e:
-            # Read error body, build response, and decide on retry
             err_body = b""
             try:
                 err_body = e.read()
@@ -322,7 +311,6 @@ class HttpClient:
             return self._should_retry_status(error.code)
         return False
 
-    # Internal utilities
     def _json_call(
         self,
         method: str,
@@ -367,7 +355,6 @@ class HttpClient:
     ) -> str:
         url = urljoin(self.base_url or "", path)
         if params:
-            # urlencode with doseq=True supports list/tuple values
             query = urlencode(
                 {k: v for k, v in params.items() if v is not None}, doseq=True
             )
@@ -378,33 +365,25 @@ class HttpClient:
     def _prepare_headers(
         self, headers: Optional[Mapping[str, str]], body: Optional[Union[bytes, str]]
     ) -> Dict[str, str]:
-        # Start with defaults
         prepared: Dict[str, str] = {}
         prepared.update(self._default_headers)
 
-        # Standard defaults for JSON REST usage
         prepared.setdefault("accept", "application/json")
         prepared.setdefault("user-agent", self.user_agent)
-        # We will send gzip accept-encoding; handle decompression manually
         prepared.setdefault("accept-encoding", "gzip, deflate")
 
-        # If we have a string body and content-type not specified, assume JSON
         if body is not None and isinstance(body, str):
             prepared.setdefault("content-type", "application/json; charset=utf-8")
 
-        # Basic authentication if provided and not overridden
         if self.auth_basic and "authorization" not in prepared:
             user, pwd = self.auth_basic
             token = base64.b64encode(f"{user}:{pwd}".encode("utf-8")).decode("ascii")
             prepared["authorization"] = f"Basic {token}"
 
-        # Merge per-call headers (case-insensitive)
         if headers:
             for k, v in headers.items():
                 prepared[k.lower()] = v
 
-        # urllib expects header keys in canonical capitalization sometimes; but it’s tolerant.
-        # We'll return as provided; urllib will handle it.
         return prepared
 
     def _should_retry_status(self, status: int) -> bool:
@@ -418,12 +397,10 @@ class HttpClient:
             if "gzip" in encoding:
                 return gzip.decompress(content)
             if "deflate" in encoding:
-                # Try raw deflate, then zlib-wrapped
                 try:
                     return zlib.decompress(content, -zlib.MAX_WBITS)
                 except zlib.error:
                     return zlib.decompress(content)
         except Exception:
-            # If decompression fails, return original bytes
             return content
         return content

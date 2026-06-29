@@ -54,24 +54,17 @@ class AbstractCommandsParser:
         in this method
         """
         if len(args) < 2:
-            # The command has no keys in it
             return None
         args = [str_if_bytes(arg) for arg in args]
         command = args[0].upper()
         keys = None
         if command == "PUBSUB":
-            # the second argument is a part of the command name, e.g.
-            # ['PUBSUB', 'NUMSUB', 'foo'].
             pubsub_type = args[1].upper()
             if pubsub_type in ["CHANNELS", "NUMSUB", "SHARDCHANNELS", "SHARDNUMSUB"]:
                 keys = args[2:]
         elif command in ["SUBSCRIBE", "PSUBSCRIBE", "UNSUBSCRIBE", "PUNSUBSCRIBE"]:
-            # format example:
-            # SUBSCRIBE channel [channel ...]
             keys = list(args[1:])
         elif command in ["PUBLISH", "SPUBLISH"]:
-            # format example:
-            # PUBLISH channel message
             keys = [args[1]]
         return keys
 
@@ -115,9 +108,6 @@ class CommandsParser(AbstractCommandsParser):
             commands[cmd.lower()] = commands.pop(cmd)
         self.commands = commands
 
-    # As soon as this PR is merged into Redis, we should reimplement
-    # our logic to use COMMAND INFO changes to determine the key positions
-    # https://github.com/redis/redis/pull/8324
     def get_keys(self, redis_conn, *args):
         """
         Get the keys from the passed command.
@@ -130,21 +120,15 @@ class CommandsParser(AbstractCommandsParser):
         So, don't use this function with EVAL or EVALSHA.
         """
         if len(args) < 2:
-            # The command has no keys in it
             return None
 
         cmd_name = args[0].lower()
         if cmd_name not in self.commands:
-            # try to split the command name and to take only the main command,
-            # e.g. 'memory' for 'memory usage'
             cmd_name_split = cmd_name.split()
             cmd_name = cmd_name_split[0]
             if cmd_name in self.commands:
-                # save the split command to args
                 args = cmd_name_split + list(args[1:])
             else:
-                # We'll try to reinitialize the commands cache, if the engine
-                # version has changed, the commands may not be current
                 self.initialize(redis_conn)
                 if cmd_name not in self.commands:
                     raise RedisError(
@@ -172,7 +156,6 @@ class CommandsParser(AbstractCommandsParser):
                             if command["first_key_pos"] > 0:
                                 is_subcmd = True
 
-                # The command doesn't have keys in it
                 if not is_subcmd:
                     return None
             last_key_pos = command["last_key_pos"]
@@ -194,8 +177,6 @@ class CommandsParser(AbstractCommandsParser):
 
         So, don't use this function with EVAL or EVALSHA.
         """
-        # The command name should be split into separate arguments,
-        # e.g. 'MEMORY USAGE' will be split into ['MEMORY', 'USAGE']
         pieces = args[0].split() + list(args[1:])
         try:
             keys = redis_conn.execute_command("COMMAND GETKEYS", *pieces)
@@ -279,10 +260,8 @@ class CommandsParser(AbstractCommandsParser):
                 command_name: The command name to associate with found policies
             """
             if isinstance(data, (str, bytes)):
-                # Decode bytes to string if needed
                 policy = str_if_bytes(data.decode())
 
-                # Check if this is a policy string
                 if policy.startswith("request_policy") or policy.startswith(
                     "response_policy"
                 ):
@@ -311,17 +290,14 @@ class CommandsParser(AbstractCommandsParser):
                             )
 
             elif isinstance(data, list):
-                # For lists, recursively process each element
                 for item in data:
                     extract_policies(item, module_name, command_name)
 
             elif isinstance(data, dict):
-                # For dictionaries, recursively process each value
                 for value in data.values():
                     extract_policies(value, module_name, command_name)
 
         for command, details in self.commands.items():
-            # Check whether the command has keys
             is_keyless = self._is_keyless_command(command)
 
             if is_keyless:
@@ -331,7 +307,6 @@ class CommandsParser(AbstractCommandsParser):
                 default_request_policy = RequestPolicy.DEFAULT_KEYED
                 default_response_policy = ResponsePolicy.DEFAULT_KEYED
 
-            # Check if it's a core or module command
             split_name = command.split(".")
 
             if len(split_name) > 1:
@@ -341,7 +316,6 @@ class CommandsParser(AbstractCommandsParser):
                 module_name = "core"
                 command_name = split_name[0]
 
-            # Create a CommandPolicies object with default policies on the new command.
             if command_with_policies.get(module_name, None) is None:
                 command_with_policies[module_name] = {
                     command_name: CommandPolicies(
@@ -358,19 +332,15 @@ class CommandsParser(AbstractCommandsParser):
             tips = details.get("tips")
             subcommands = details.get("subcommands")
 
-            # Process tips for the main command
             if tips:
                 extract_policies(tips, module_name, command_name)
 
-            # Process subcommands
             if subcommands:
                 for subcommand_details in subcommands:
-                    # Get the subcommand name (first element)
                     subcmd_name = subcommand_details[0]
                     if isinstance(subcmd_name, bytes):
                         subcmd_name = subcmd_name.decode()
 
-                    # Check whether the subcommand has keys
                     is_keyless = self._is_keyless_command(command, subcmd_name)
 
                     if is_keyless:
@@ -382,13 +352,11 @@ class CommandsParser(AbstractCommandsParser):
 
                     subcmd_name = subcmd_name.replace("|", " ")
 
-                    # Create a CommandPolicies object with default policies on the new command.
                     command_with_policies[module_name][subcmd_name] = CommandPolicies(
                         request_policy=default_request_policy,
                         response_policy=default_response_policy,
                     )
 
-                    # Recursively extract policies from the rest of the subcommand details
                     for subcommand_detail in subcommand_details[1:]:
                         extract_policies(subcommand_detail, module_name, subcmd_name)
 
@@ -423,9 +391,6 @@ class AsyncCommandsParser(AbstractCommandsParser):
         commands = await self.node.execute_command("COMMAND")
         self.commands = {cmd.lower(): command for cmd, command in commands.items()}
 
-    # As soon as this PR is merged into Redis, we should reimplement
-    # our logic to use COMMAND INFO changes to determine the key positions
-    # https://github.com/redis/redis/pull/8324
     async def get_keys(self, *args: Any) -> Optional[Tuple[str, ...]]:
         """
         Get the keys from the passed command.
@@ -438,21 +403,15 @@ class AsyncCommandsParser(AbstractCommandsParser):
         So, don't use this function with EVAL or EVALSHA.
         """
         if len(args) < 2:
-            # The command has no keys in it
             return None
 
         cmd_name = args[0].lower()
         if cmd_name not in self.commands:
-            # try to split the command name and to take only the main command,
-            # e.g. 'memory' for 'memory usage'
             cmd_name_split = cmd_name.split()
             cmd_name = cmd_name_split[0]
             if cmd_name in self.commands:
-                # save the split command to args
                 args = cmd_name_split + list(args[1:])
             else:
-                # We'll try to reinitialize the commands cache, if the engine
-                # version has changed, the commands may not be current
                 await self.initialize()
                 if cmd_name not in self.commands:
                     raise RedisError(
@@ -480,7 +439,6 @@ class AsyncCommandsParser(AbstractCommandsParser):
                             if command["first_key_pos"] > 0:
                                 is_subcmd = True
 
-                # The command doesn't have keys in it
                 if not is_subcmd:
                     return None
             last_key_pos = command["last_key_pos"]
@@ -576,10 +534,8 @@ class AsyncCommandsParser(AbstractCommandsParser):
                 command_name: The command name to associate with found policies
             """
             if isinstance(data, (str, bytes)):
-                # Decode bytes to string if needed
                 policy = str_if_bytes(data.decode())
 
-                # Check if this is a policy string
                 if policy.startswith("request_policy") or policy.startswith(
                     "response_policy"
                 ):
@@ -608,17 +564,14 @@ class AsyncCommandsParser(AbstractCommandsParser):
                             )
 
             elif isinstance(data, list):
-                # For lists, recursively process each element
                 for item in data:
                     extract_policies(item, module_name, command_name)
 
             elif isinstance(data, dict):
-                # For dictionaries, recursively process each value
                 for value in data.values():
                     extract_policies(value, module_name, command_name)
 
         for command, details in self.commands.items():
-            # Check whether the command has keys
             is_keyless = await self._is_keyless_command(command)
 
             if is_keyless:
@@ -628,7 +581,6 @@ class AsyncCommandsParser(AbstractCommandsParser):
                 default_request_policy = RequestPolicy.DEFAULT_KEYED
                 default_response_policy = ResponsePolicy.DEFAULT_KEYED
 
-            # Check if it's a core or module command
             split_name = command.split(".")
 
             if len(split_name) > 1:
@@ -638,7 +590,6 @@ class AsyncCommandsParser(AbstractCommandsParser):
                 module_name = "core"
                 command_name = split_name[0]
 
-            # Create a CommandPolicies object with default policies on the new command.
             if command_with_policies.get(module_name, None) is None:
                 command_with_policies[module_name] = {
                     command_name: CommandPolicies(
@@ -655,19 +606,15 @@ class AsyncCommandsParser(AbstractCommandsParser):
             tips = details.get("tips")
             subcommands = details.get("subcommands")
 
-            # Process tips for the main command
             if tips:
                 extract_policies(tips, module_name, command_name)
 
-            # Process subcommands
             if subcommands:
                 for subcommand_details in subcommands:
-                    # Get the subcommand name (first element)
                     subcmd_name = subcommand_details[0]
                     if isinstance(subcmd_name, bytes):
                         subcmd_name = subcmd_name.decode()
 
-                    # Check whether the subcommand has keys
                     is_keyless = await self._is_keyless_command(command, subcmd_name)
 
                     if is_keyless:
@@ -679,13 +626,11 @@ class AsyncCommandsParser(AbstractCommandsParser):
 
                     subcmd_name = subcmd_name.replace("|", " ")
 
-                    # Create a CommandPolicies object with default policies on the new command.
                     command_with_policies[module_name][subcmd_name] = CommandPolicies(
                         request_policy=default_request_policy,
                         response_policy=default_response_policy,
                     )
 
-                    # Recursively extract policies from the rest of the subcommand details
                     for subcommand_detail in subcommand_details[1:]:
                         extract_policies(subcommand_detail, module_name, subcmd_name)
 

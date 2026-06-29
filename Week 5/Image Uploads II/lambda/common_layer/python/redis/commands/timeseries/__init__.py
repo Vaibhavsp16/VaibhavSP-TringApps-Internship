@@ -50,7 +50,6 @@ class _TimeSeriesBase(TimeSeriesCommands):
 
     def __init__(self, client=None, **kwargs):
         """Create a new RedisTimeSeries client."""
-        # Set the module commands' callbacks
         _MODULE_CALLBACKS = {
             ALTER_CMD: bool_ok,
             CREATE_CMD: bool_ok,

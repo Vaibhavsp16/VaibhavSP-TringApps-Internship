@@ -1,13 +1,11 @@
 import threading
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
-# Optional import - OTel SDK may not be installed
-# Use Any as fallback type when OTel is not available
 if TYPE_CHECKING:
     try:
         from opentelemetry.metrics import Observation
     except ImportError:
-        Observation = Any  # type: ignore[misc]
+        Observation = Any 
 else:
     Observation = Any
 
@@ -49,7 +47,6 @@ class ObservablesRegistry:
         return len(self._registry)
 
 
-# Global singleton instance
 _observables_registry_instance: Optional[ObservablesRegistry] = None
 
 

@@ -20,14 +20,14 @@ Standalone Redis Example:
     ... )
     >>>
     >>> r = Redis()
-    >>> # Server must have notify-keyspace-events configured (e.g., "KEA")
+    >>>
     >>> ksn = KeyspaceNotifications(r)
     >>>
-    >>> # Subscribe using Channel class (patterns auto-detected)
+    >>>
     >>> channel = KeyspaceChannel("user:*")
     >>> ksn.subscribe(channel)
     >>>
-    >>> # Or use convenience methods for specific event types
+    >>>
     >>> ksn.subscribe_keyevent(EventType.SET)
     >>>
     >>> for notification in ksn.listen():
@@ -42,14 +42,14 @@ Redis Cluster Example:
     ... )
     >>>
     >>> rc = RedisCluster(host="localhost", port=7000)
-    >>> # Server must have notify-keyspace-events configured (e.g., "KEA")
+    >>>
     >>> ksn = ClusterKeyspaceNotifications(rc)
     >>>
-    >>> # Subscribe using Channel class (patterns auto-detected)
+    >>>
     >>> channel = KeyspaceChannel("user:*")
     >>> ksn.subscribe(channel)
     >>>
-    >>> # Or use convenience methods for specific event types
+    >>>
     >>> ksn.subscribe_keyevent(EventType.SET)
     >>>
     >>> for notification in ksn.listen():
@@ -82,8 +82,6 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from typing import TypeAlias
 
-# Type alias for channel arguments - can be a string, bytes, or Channel object
-# This is defined here and the actual types are added after class definitions
 ChannelT: TypeAlias = Union[
     str,
     bytes,
@@ -96,16 +94,9 @@ ChannelT: TypeAlias = Union[
 ]
 
 
-# Type alias for sync handlers
 SyncHandlerT = Callable[["KeyNotification"], None]
 
 
-# =============================================================================
-# Event Type Constants
-# =============================================================================
-# These are common Redis keyspace notification event types provided for
-# convenience. You can use any string as an event type - these constants
-# are not exhaustive and Redis may add new events in future versions.
 
 
 class EventType:
@@ -117,7 +108,6 @@ class EventType:
     needing library updates.
     """
 
-    # String commands
     SET = "set"
     SETEX = "setex"
     SETNX = "setnx"
@@ -129,7 +119,6 @@ class EventType:
     DECRBY = "decrby"
     APPEND = "append"
 
-    # Generic commands
     DEL = "del"
     UNLINK = "unlink"
     RENAME = "rename"
@@ -139,7 +128,6 @@ class EventType:
     MOVE = "move"
     RESTORE = "restore"
 
-    # Expiration events
     EXPIRE = "expire"
     EXPIREAT = "expireat"
     PEXPIRE = "pexpire"
@@ -147,10 +135,8 @@ class EventType:
     EXPIRED = "expired"
     PERSIST = "persist"
 
-    # Eviction events
     EVICTED = "evicted"
 
-    # List commands
     LPUSH = "lpush"
     RPUSH = "rpush"
     LPOP = "lpop"
@@ -163,7 +149,6 @@ class EventType:
     BRPOP = "brpop"
     BLMOVE = "blmove"
 
-    # Set commands
     SADD = "sadd"
     SREM = "srem"
     SPOP = "spop"
@@ -172,7 +157,6 @@ class EventType:
     SUNIONSTORE = "sunionstore"
     SDIFFSTORE = "sdiffstore"
 
-    # Sorted set commands
     ZADD = "zadd"
     ZINCRBY = "zincrby"
     ZREM = "zrem"
@@ -188,14 +172,12 @@ class EventType:
     ZDIFFSTORE = "zdiffstore"
     ZRANGESTORE = "zrangestore"
 
-    # Hash commands
     HSET = "hset"
     HSETNX = "hsetnx"
     HDEL = "hdel"
     HINCRBY = "hincrby"
     HINCRBYFLOAT = "hincrbyfloat"
 
-    # Stream commands
     XADD = "xadd"
     XTRIM = "xtrim"
     XDEL = "xdel"
@@ -209,8 +191,7 @@ class EventType:
     XAUTOCLAIM = "xautoclaim"
     XREADGROUP = "xreadgroup"
 
-    # Other
-    NEW = "new"  # Key created (when tracking new keys)
+    NEW = "new" 
     SORTSTORE = "sortstore"
     GETEX = "getex"
     GETDEL = "getdel"
@@ -237,7 +218,7 @@ def _parse_length_prefixed_subkeys(s: str) -> list[str]:
         subkeys.append(s[start : start + length])
         pos = start + length
         if pos < len(s) and s[pos] == ",":
-            pos += 1  # skip comma separator
+            pos += 1 
     return subkeys
 
 
@@ -263,8 +244,6 @@ class KeyNotification:
                 Empty list for regular keyspace/keyevent notifications.
     """
 
-    # Regex patterns for parsing keyspace/keyevent channels
-    # Pattern: __keyspace@<db>__:<key> or __keyevent@<db>__:<event>
     _KEYSPACE_PATTERN: ClassVar[re.Pattern] = re.compile(
         r"^__keyspace@(\d+|\*)__:(.+)$"
     )
@@ -290,7 +269,7 @@ class KeyNotification:
     channel: str
     is_keyspace: bool
     data: str
-    subkeys: list[str] = None  # type: ignore[assignment]
+    subkeys: list[str] = None 
 
     def __post_init__(self):
         if self.subkeys is None:
@@ -378,17 +357,14 @@ class KeyNotification:
         key_prefix: str | bytes | None = None,
     ) -> KeyNotification | None:
         """Internal parsing logic."""
-        # Normalize key_prefix
         key_prefix = safe_str(key_prefix) if key_prefix else None
 
-        # Try keyspace pattern first: __keyspace@<db>__:<key>
         match = cls._KEYSPACE_PATTERN.match(channel)
         if match:
             db_str, key = match.groups()
             database = int(db_str) if db_str != "*" else -1
-            event_type = data  # For keyspace, the data is the event type
+            event_type = data 
 
-            # Apply key prefix filter
             if key_prefix:
                 if not key.startswith(key_prefix):
                     return None
@@ -403,14 +379,12 @@ class KeyNotification:
                 data=data,
             )
 
-        # Try keyevent pattern: __keyevent@<db>__:<event>
         match = cls._KEYEVENT_PATTERN.match(channel)
         if match:
             db_str, event_type = match.groups()
             database = int(db_str) if db_str != "*" else -1
-            key = data  # For keyevent, the data is the key
+            key = data 
 
-            # Apply key prefix filter
             if key_prefix:
                 if not key.startswith(key_prefix):
                     return None
@@ -425,8 +399,6 @@ class KeyNotification:
                 data=data,
             )
 
-        # Try subkeyspace: channel=__subkeyspace@<db>__:<key>
-        # data=<event>|<subkey_len>:<subkey>[,<subkey_len>:<subkey>...]
         match = cls._SUBKEYSPACE_PATTERN.match(channel)
         if match:
             db_str, key = match.groups()
@@ -450,19 +422,15 @@ class KeyNotification:
                 subkeys=subkeys,
             )
 
-        # Try subkeyevent: channel=__subkeyevent@<db>__:<event>
-        # data=<key_len>:<key>|<subkey_len>:<subkey>[,...]
         match = cls._SUBKEYEVENT_PATTERN.match(channel)
         if match:
             db_str, event_type = match.groups()
             database = int(db_str) if db_str != "*" else -1
-            # Parse key by length prefix
             colon_idx = data.index(":")
             key_len = int(data[:colon_idx])
             key_start = colon_idx + 1
             key = data[key_start : key_start + key_len]
-            # After key, expect '|' then subkeys
-            subkeys_start = key_start + key_len + 1  # +1 for '|'
+            subkeys_start = key_start + key_len + 1 
             subkeys = _parse_length_prefixed_subkeys(data[subkeys_start:])
 
             if key_prefix:
@@ -480,8 +448,6 @@ class KeyNotification:
                 subkeys=subkeys,
             )
 
-        # Try subkeyspaceitem: channel=__subkeyspaceitem@<db>__:<key>\n<subkey>
-        # data=<event>
         match = cls._SUBKEYSPACEITEM_PATTERN.match(channel)
         if match:
             db_str, key_and_subkey = match.groups()
@@ -506,8 +472,6 @@ class KeyNotification:
                 subkeys=[subkey],
             )
 
-        # Try subkeyspaceevent: channel=__subkeyspaceevent@<db>__:<event>|<key>
-        # data=<subkey_len>:<subkey>[,...]
         match = cls._SUBKEYSPACEEVENT_PATTERN.match(channel)
         if match:
             db_str, event_and_key = match.groups()
@@ -540,9 +504,6 @@ class KeyNotification:
         return self.key.startswith(prefix)
 
 
-# =============================================================================
-# Channel Classes
-# =============================================================================
 
 
 class KeyspaceChannel:
@@ -565,12 +526,12 @@ class KeyspaceChannel:
         >>> str(channel)
         '__keyspace@0__:user:123'
 
-        >>> # Pattern subscription (wildcards are auto-detected)
+        >>>
         >>> channel = KeyspaceChannel("user:*", db=0)
         >>> str(channel)
         '__keyspace@0__:user:*'
 
-        >>> # Use with KeyspaceNotifications
+        >>>
         >>> notifications = KeyspaceNotifications(redis_client)
         >>> notifications.subscribe(channel)
     """
@@ -638,7 +599,7 @@ class KeyeventChannel:
         >>> str(channel)
         '__keyevent@0__:*'
 
-        >>> # Use with KeyspaceNotifications
+        >>>
         >>> notifications = KeyspaceNotifications(redis_client)
         >>> notifications.subscribe(channel)
     """
@@ -955,7 +916,6 @@ def get_channel_type(channel: str | bytes) -> ChannelType | None:
         ChannelType.KEYSPACE
     """
     channel_str = safe_str(channel)
-    # Check subkey prefixes first (they are longer and more specific)
     if channel_str.startswith(SubkeyspaceitemChannel.PREFIX):
         return ChannelType.SUBKEYSPACEITEM
     if channel_str.startswith(SubkeyspaceeventChannel.PREFIX):
@@ -989,27 +949,18 @@ def _is_pattern(
     Returns:
         True if the channel contains pattern characters, False otherwise.
     """
-    # Handle Channel objects that have _channel_str attribute
-    # (KeyspaceChannel, KeyeventChannel)
     if hasattr(channel, "_channel_str"):
         channel = channel._channel_str
     channel = safe_str(channel)
-    # Check for unescaped glob pattern characters.
-    # * and ? are always pattern characters.
-    # [ is only a pattern character when followed by a matching unescaped ],
-    # forming a bracket expression like [abc] or [a-z].  A lone [ (e.g. in
-    # a key named "my[key") is treated as a literal by Redis.
     i = 0
     while i < len(channel):
         char = channel[i]
         if char == "\\":
-            # Skip escaped character
             i += 2
             continue
         if char in ("*", "?"):
             return True
         if char == "[":
-            # Look for a matching unescaped ]
             j = i + 1
             while j < len(channel):
                 if channel[j] == "\\":
@@ -1018,14 +969,10 @@ def _is_pattern(
                 if channel[j] == "]":
                     return True
                 j += 1
-            # No matching ] found — literal [
         i += 1
     return False
 
 
-# =============================================================================
-# Abstract Base Class for Keyspace Notifications
-# =============================================================================
 
 
 class KeyspaceNotificationsInterface(ABC):
@@ -1214,10 +1161,8 @@ class AbstractKeyspaceNotifications(KeyspaceNotificationsInterface):
                     objects. If provided, notifications are passed to the handler
                     instead of being returned by get_message()/listen().
         """
-        # Wrap the handler to convert raw messages to KeyNotification objects
         wrapped_handler: Callable | None = None
         if handler is not None:
-            # Capture key_prefix in closure for consistent filtering/stripping
             key_prefix = self.key_prefix
 
             def _wrap_handler(message):
@@ -1242,10 +1187,6 @@ class AbstractKeyspaceNotifications(KeyspaceNotificationsInterface):
             else:
                 exact_channels[channel_str] = wrapped_handler
 
-        # Delegate to subclass implementation first.  For standalone Redis
-        # this raises on failure, keeping tracking state clean.  For cluster
-        # implementations the operation is best-effort (partial failures are
-        # logged, not raised) so tracking state is always updated afterwards.
         self._execute_subscribe(patterns, exact_channels)
         self._track_subscribe(patterns, exact_channels)
 
@@ -1285,12 +1226,6 @@ class AbstractKeyspaceNotifications(KeyspaceNotificationsInterface):
             else:
                 exact_channels.append(channel_str)
 
-        # Delegate to subclass implementation first.  For standalone Redis
-        # this raises on failure, keeping tracking state intact.  For cluster
-        # implementations the operation is best-effort (partial failures are
-        # logged, not raised) so tracking state is always removed afterwards
-        # — this is intentional: the user asked to unsubscribe, so
-        # refresh_subscriptions should not re-subscribe these channels.
         self._execute_unsubscribe(patterns, exact_channels)
         self._untrack_subscribe(patterns, exact_channels)
 
@@ -1506,7 +1441,7 @@ class AbstractKeyspaceNotifications(KeyspaceNotificationsInterface):
             >>>
             >>> notifications.subscribe(KeyspaceChannel("user:*"), handler=my_handler)
             >>> thread = notifications.run_in_thread(poll_timeout=0.1, daemon=True)
-            >>> # ... handlers are called automatically ...
+            >>>
             >>> thread.stop()
         """
         self._validate_all_handlers()
@@ -1540,7 +1475,7 @@ class KeyspaceWorkerThread(threading.Thread):
 
     Example:
         >>> thread = notifications.run_in_thread(poll_timeout=0.1)
-        >>> # ... handlers are called automatically ...
+        >>>
         >>> thread.stop()
     """
 
@@ -1594,9 +1529,6 @@ class KeyspaceWorkerThread(threading.Thread):
         self._running.clear()
 
 
-# =============================================================================
-# Standalone Keyspace Notification Manager
-# =============================================================================
 
 
 class KeyspaceNotifications(AbstractKeyspaceNotifications):
@@ -1633,8 +1565,6 @@ class KeyspaceNotifications(AbstractKeyspaceNotifications):
         super().__init__(key_prefix, ignore_subscribe_messages)
         self.redis = redis_client
 
-        # Create the PubSub instance with ignore_subscribe_messages=False
-        # so that the per-call argument in get_message() can control behavior
         self._pubsub = redis_client.pubsub(ignore_subscribe_messages=False)
 
     def _execute_subscribe(
@@ -1681,9 +1611,6 @@ class KeyspaceNotifications(AbstractKeyspaceNotifications):
         if self._closed:
             return None
 
-        # Pubsub's get_message will call wrapped handlers directly for channels
-        # with registered handlers and return None. For channels without handlers,
-        # it returns the raw message which we parse to KeyNotification.
         message = self._pubsub.get_message(
             ignore_subscribe_messages=ignore_subscribe_messages,
             timeout=timeout,
@@ -1736,9 +1663,6 @@ class KeyspaceNotifications(AbstractKeyspaceNotifications):
             pass
 
 
-# =============================================================================
-# Cluster-Aware Keyspace Notification Manager
-# =============================================================================
 
 
 class ClusterKeyspaceNotifications(AbstractKeyspaceNotifications):
@@ -1772,20 +1696,13 @@ class ClusterKeyspaceNotifications(AbstractKeyspaceNotifications):
         super().__init__(key_prefix, ignore_subscribe_messages)
         self.cluster = redis_cluster
 
-        # Canonical subscription registry: pattern/channel -> wrapped handler.
-        # In cluster mode there are multiple PubSub objects (one per node), so
-        # this is the single source of truth used to (re-)subscribe new or
-        # failed-over nodes.
         self._subscribed_patterns: dict[str, Any] = {}
         self._subscribed_channels: dict[str, Any] = {}
 
-        # Track subscriptions per node
         self._node_pubsubs: dict[str, Any] = {}
 
-        # Lock for topology refresh operations
         self._refresh_lock = threading.Lock()
 
-        # Current pubsub index for round-robin polling
         self._poll_index = 0
 
     @property
@@ -1843,9 +1760,6 @@ class ClusterKeyspaceNotifications(AbstractKeyspaceNotifications):
         """Get or create a PubSub instance for a node."""
         if node.name not in self._node_pubsubs:
             redis_conn = self.cluster.get_redis_connection(node)
-            # Always create PubSub with ignore_subscribe_messages=False
-            # so that the per-call argument in get_message() can control
-            # the behavior reliably
             pubsub = redis_conn.pubsub(ignore_subscribe_messages=False)
             self._node_pubsubs[node.name] = pubsub
         return self._node_pubsubs[node.name]
@@ -1874,8 +1788,6 @@ class ClusterKeyspaceNotifications(AbstractKeyspaceNotifications):
             is_new_node = node.name not in self._node_pubsubs
             pubsub = self._ensure_node_pubsub(node)
             try:
-                # If this is a brand-new node, catch it up on existing
-                # subscriptions before adding the new channels.
                 if is_new_node:
                     if self._subscribed_patterns:
                         pubsub.psubscribe(**self._subscribed_patterns)
@@ -1887,8 +1799,6 @@ class ClusterKeyspaceNotifications(AbstractKeyspaceNotifications):
                 if exact_channels:
                     pubsub.subscribe(**exact_channels)
             except Exception:
-                # Remove the broken pubsub so refresh_subscriptions can
-                # re-create it later.
                 self._cleanup_node(node.name)
                 failed_nodes.append(node.name)
 
@@ -1960,31 +1870,22 @@ class ClusterKeyspaceNotifications(AbstractKeyspaceNotifications):
 
         total_nodes = len(self._node_pubsubs)
         if total_nodes == 0:
-            # Sleep for the requested timeout so callers that loop
-            # (run_in_thread, listen) don't spin the CPU when all node
-            # connections have been cleaned up.
             if timeout > 0:
                 time.sleep(timeout)
             return None
 
-        # Use instance default if not specified
         if ignore_subscribe_messages is None:
             ignore_subscribe_messages = self.ignore_subscribe_messages
 
-        # Handle timeout=0 as a single non-blocking poll over all pubsubs
-        # This matches the expected semantics of PubSub.get_message(timeout=0)
         if timeout == 0.0:
             return self._poll_all_nodes_once(ignore_subscribe_messages)
 
-        # Calculate per-node timeout for each poll
-        # Use a small timeout per node to allow round-robin polling
         per_node_timeout = min(0.1, timeout / max(total_nodes, 1))
 
         start_time = time.monotonic()
         end_time = start_time + timeout
 
         while True:
-            # Check if we've exceeded the total timeout
             if time.monotonic() >= end_time:
                 return None
 
@@ -1992,7 +1893,6 @@ class ClusterKeyspaceNotifications(AbstractKeyspaceNotifications):
             if not pubsubs:
                 return None
 
-            # Round-robin polling
             self._poll_index = self._poll_index % len(pubsubs)
             pubsub = pubsubs[self._poll_index]
             self._poll_index += 1
@@ -2003,19 +1903,15 @@ class ClusterKeyspaceNotifications(AbstractKeyspaceNotifications):
                     timeout=per_node_timeout,
                 )
             except (ConnectionError, TimeoutError, RedisError):
-                # Connection error - refresh subscriptions and continue
                 self._refresh_subscriptions_on_error()
                 continue
 
             if message is not None:
-                # Note: If a handler was registered, PubSub already invoked it
-                # and returned None, so we only reach here for handler-less subscriptions
                 notification = KeyNotification.from_message(
                     message, key_prefix=self.key_prefix
                 )
                 if notification is not None:
                     return notification
-                # If not a keyspace notification, continue checking other nodes
 
     def _poll_all_nodes_once(
         self, ignore_subscribe_messages: bool
@@ -2037,25 +1933,18 @@ class ClusterKeyspaceNotifications(AbstractKeyspaceNotifications):
                     timeout=0.0,
                 )
             except (ConnectionError, TimeoutError, RedisError):
-                # Record the error but continue polling remaining healthy
-                # nodes so that already-buffered notifications are not lost.
                 had_error = True
                 continue
 
             if message is not None:
-                # Note: If a handler was registered, PubSub already invoked it
-                # and returned None, so we only reach here for handler-less subscriptions
                 notification = KeyNotification.from_message(
                     message, key_prefix=self.key_prefix
                 )
                 if notification is not None:
-                    # Refresh before returning if any node had an error,
-                    # so the next poll cycle has fresh state.
                     if had_error:
                         self._refresh_subscriptions_on_error()
                     return notification
 
-        # Refresh after polling all nodes if any had errors
         if had_error:
             self._refresh_subscriptions_on_error()
         return None
@@ -2086,7 +1975,7 @@ class ClusterKeyspaceNotifications(AbstractKeyspaceNotifications):
         This is called automatically when a connection error occurs during
         get_message(). It checks if nodes changed before refreshing.
         """
-        self._poll_index = 0  # Reset round-robin index
+        self._poll_index = 0 
 
         try:
             self.refresh_subscriptions()
@@ -2123,26 +2012,20 @@ class ClusterKeyspaceNotifications(AbstractKeyspaceNotifications):
                 node.name: node for node in self._get_all_primary_nodes()
             }
 
-            # Remove pubsubs for nodes that are no longer primaries
             removed_nodes = set(self._node_pubsubs.keys()) - set(
                 current_primaries.keys()
             )
             for node_name in removed_nodes:
                 self._cleanup_node(node_name)
 
-            # Detect broken connections for existing nodes and remove them
-            # so they get re-created below
             existing_nodes = set(self._node_pubsubs.keys()) & set(
                 current_primaries.keys()
             )
             for node_name in existing_nodes:
                 pubsub = self._node_pubsubs.get(node_name)
                 if pubsub and not self._is_pubsub_connected(pubsub):
-                    # Connection is broken, remove it so it gets re-created
                     self._cleanup_node(node_name)
 
-            # Subscribe new nodes (and nodes with broken connections) to existing
-            # patterns/channels
             new_nodes = set(current_primaries.keys()) - set(self._node_pubsubs.keys())
             failed_nodes: list[str] = []
             for node_name in new_nodes:
@@ -2155,11 +2038,9 @@ class ClusterKeyspaceNotifications(AbstractKeyspaceNotifications):
                     if self._subscribed_channels:
                         pubsub.subscribe(**self._subscribed_channels)
                 except Exception:
-                    # Subscription failed - remove from dict so retry is possible
                     self._cleanup_node(node_name)
                     failed_nodes.append(node_name)
 
-            # Raise after attempting all nodes so we don't skip any
             if failed_nodes:
                 raise ConnectionError(
                     f"Failed to subscribe to cluster nodes: {', '.join(failed_nodes)}"

@@ -1,9 +1,7 @@
 import random
 from abc import ABC, abstractmethod
 
-# Maximum backoff between each retry in seconds
 DEFAULT_CAP = 0.512
-# Minimum backoff between each retry in seconds
 DEFAULT_BASE = 0.008
 
 

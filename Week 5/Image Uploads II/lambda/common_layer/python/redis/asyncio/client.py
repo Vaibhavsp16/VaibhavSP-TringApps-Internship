@@ -136,7 +136,6 @@ class Redis(
     Connection object to talk to redis.
     """
 
-    # Type discrimination marker for @overload self-type pattern
     _is_async_client: Literal[True] = True
 
     response_callbacks: MutableMapping[Union[str, bytes], ResponseCallbackT]
@@ -329,9 +328,6 @@ class Redis(
             self._event_dispatcher = EventDispatcher()
         else:
             self._event_dispatcher = event_dispatcher
-        # auto_close_connection_pool only has an effect if connection_pool is
-        # None. It is assumed that if connection_pool is not None, the user
-        # wants to manage the connection pool themselves.
         if auto_close_connection_pool is not None:
             warnings.warn(
                 DeprecationWarning(
@@ -345,11 +341,9 @@ class Redis(
             auto_close_connection_pool = True
 
         if not connection_pool:
-            # Create internal connection pool, expected to be closed by Redis instance
             if not retry_on_error:
                 retry_on_error = []
 
-            # Handle driver_info: if provided, use it; otherwise create from lib_name/lib_version.
             computed_driver_info = resolve_driver_info(
                 driver_info, lib_name, lib_version
             )
@@ -374,7 +368,6 @@ class Redis(
                 "protocol": protocol,
                 "legacy_responses": legacy_responses,
             }
-            # based on input, setup appropriate connection args
             if unix_socket_path is not None:
                 kwargs.update(
                     {
@@ -383,7 +376,6 @@ class Redis(
                     }
                 )
             else:
-                # TCP specific options
                 kwargs.update(
                     {
                         "host": host,
@@ -412,7 +404,6 @@ class Redis(
                             "ssl_password": ssl_password,
                         }
                     )
-            # This arg only used if no pool is passed in
             self.auto_close_connection_pool = auto_close_connection_pool
             connection_pool = ConnectionPool(**kwargs)
             self._event_dispatcher.dispatch(
@@ -421,7 +412,6 @@ class Redis(
                 )
             )
         else:
-            # If a pool is passed in, do not close it
             self.auto_close_connection_pool = False
             self._event_dispatcher.dispatch(
                 AfterPooledConnectionsInstantiationEvent(
@@ -441,14 +431,8 @@ class Redis(
             )
         )
 
-        # If using a single connection client, we need to lock creation-of and use-of
-        # the client in order to avoid race conditions such as using asyncio.gather
-        # on a set of redis commands
         self._single_conn_lock = asyncio.Lock()
 
-        # When used as an async context manager, we need to increment and decrement
-        # a usage counter so that we can close the connection pool when no one is
-        # using the client.
         self._usage_counter = 0
         self._usage_lock = asyncio.Lock()
 
@@ -693,10 +677,8 @@ class Redis(
         """
         await self._increment_usage()
         try:
-            # Initialize the client (i.e. establish connection, etc.)
             return await self.initialize()
         except Exception:
-            # If initialization fails, decrement the counter to keep it in sync
             await self._decrement_usage()
             raise
 
@@ -725,13 +707,10 @@ class Redis(
         """
         current_usage = await asyncio.shield(self._decrement_usage())
         if current_usage == 0:
-            # This was the last active context, so disconnect the pool.
             await asyncio.shield(self.aclose())
 
     _DEL_MESSAGE = "Unclosed Redis client"
 
-    # passing _warnings and _grl as argument default since they may be gone
-    # by the time __del__ is called at shutdown
     def __del__(
         self,
         _warn: Any = warnings.warn,
@@ -814,7 +793,6 @@ class Redis(
 
         await conn.disconnect(error=error, failure_count=failure_count)
 
-    # COMMAND EXECUTION AND PROTOCOL PARSING
     async def execute_command(self, *args, **options):
         """Execute a command and return a parsed response"""
         await self.initialize()
@@ -822,9 +800,7 @@ class Redis(
         command_name = args[0]
         conn = self.connection or await pool.get_connection()
 
-        # Start timing for observability
         start_time = time.monotonic()
-        # Track actual retry attempts for error reporting
         actual_retry_attempts = 0
 
         def failure_callback(error, failure_count):
@@ -888,11 +864,9 @@ class Redis(
         if EMPTY_RESPONSE in options:
             options.pop(EMPTY_RESPONSE)
 
-        # Remove keys entry, it needs only for cache.
         options.pop("keys", None)
 
         if command_name in self.response_callbacks:
-            # Mypy bug: https://github.com/python/mypy/issues/10977
             command_name = cast(str, command_name)
             retval = self.response_callbacks[command_name](response, **options)
             return await retval if inspect.isawaitable(retval) else retval
@@ -932,7 +906,6 @@ class Monitor:
     async def __aenter__(self):
         await self.connect()
         await self.connection.send_command("MONITOR")
-        # check that monitor returns 'OK', but don't return it to user
         response = await self.connection.read_response()
         if not bool_ok(response):
             raise RedisError(f"MONITOR failed: {response}")
@@ -952,9 +925,6 @@ class Monitor:
         m = self.monitor_re.match(command_data)
         db_id, client_info, command = m.groups()
         command = " ".join(self.command_re.findall(command))
-        # Redis escapes double quotes because each piece of the command
-        # string is surrounded by double quotes. We don't have that
-        # requirement so remove the escaping and leave the quote.
         command = command.replace('\\"', '"')
 
         if client_info == "lua":
@@ -966,7 +936,6 @@ class Monitor:
             client_port = client_info[5:]
             client_type = "unix"
         else:
-            # use rsplit as ipv6 addresses contain colons
             client_address, client_port = client_info.rsplit(":", 1)
             client_type = "tcp"
         return {
@@ -1014,8 +983,6 @@ class PubSub:
         self.shard_hint = shard_hint
         self.ignore_subscribe_messages = ignore_subscribe_messages
         self.connection = None
-        # we need to know the encoding options for this connection in order
-        # to lookup channel and pattern names for callback handlers.
         self.encoder = encoder
         self.push_handler_func = push_handler_func
         if self.encoder is None:
@@ -1051,17 +1018,10 @@ class PubSub:
             self.connection.deregister_connect_callback(self.on_connect)
 
     async def aclose(self):
-        # In case a connection property does not yet exist
-        # (due to a crash earlier in the Redis() constructor), return
-        # immediately as there is nothing to clean-up.
         if not hasattr(self, "connection"):
             return
         async with self._lock:
             if self.connection:
-                # Use nowait=True to avoid awaiting StreamWriter.wait_closed(),
-                # which can deadlock when a concurrent reader task (e.g. one
-                # running pubsub.run() or get_message(block=True)) still holds
-                # the transport.  See https://github.com/redis/redis-py/issues/3941
                 await self.connection.disconnect(nowait=True)
                 self.connection.deregister_connect_callback(self.on_connect)
                 await self.connection_pool.release(self.connection)
@@ -1084,8 +1044,6 @@ class PubSub:
         await self.aclose()
 
     async def _resubscribe(self, subscribed, subscribe_fn) -> None:
-        # Replay handler-backed subscriptions as positional Subscription objects
-        # so binary names never need to be decoded into keyword argument keys.
         subscriptions = pubsub_subscription_args(subscribed)
         if subscriptions:
             await subscribe_fn(*subscriptions)
@@ -1113,9 +1071,6 @@ class PubSub:
     async def execute_command(self, *args: EncodableT):
         """Execute a publish/subscribe command"""
 
-        # NOTE: don't parse the response in this function -- it could pull a
-        # legitimate message off the stack if the connection is already
-        # subscribed to one or more channels
 
         await self.connect()
         connection = self.connection
@@ -1128,8 +1083,6 @@ class PubSub:
         """
         if self.connection is None:
             self.connection = await self.connection_pool.get_connection()
-            # register a callback that re-subscribes to any channels we
-            # were listening to when we were disconnected
             self.connection.register_connect_callback(self.on_connect)
         else:
             await self.connection.connect()
@@ -1179,7 +1132,7 @@ class PubSub:
         Connect manually upon disconnection. If the Redis server is down,
         this will fail and raise a ConnectionError as desired.
         After reconnection, the ``on_connect`` callback should have been
-        called by the # connection to resubscribe us to any channels and
+        called by the
         patterns we were previously listening to
         """
         if not len(args) == 0:
@@ -1187,9 +1140,7 @@ class PubSub:
         else:
             command_name = None
 
-        # Start timing for observability
         start_time = time.monotonic()
-        # Track actual retry attempts for error reporting
         actual_retry_attempts = 0
 
         def failure_callback(error, failure_count):
@@ -1252,18 +1203,14 @@ class PubSub:
             block=False when a timeout is provided, and block=True when timeout=None.
 
         Example:
-            # Block indefinitely (timeout is ignored)
             response = await pubsub.parse_response(block=True, timeout=0.1)
 
-            # Non-blocking with 0.1 second timeout
             response = await pubsub.parse_response(block=False, timeout=0.1)
 
-            # Non-blocking, return immediately
             response = await pubsub.parse_response(block=False, timeout=0)
 
-            # Recommended: use get_message() instead
-            msg = await pubsub.get_message(timeout=0.1)  # automatically sets block=False
-            msg = await pubsub.get_message(timeout=None)  # automatically sets block=True
+            msg = await pubsub.get_message(timeout=0.1) 
+            msg = await pubsub.get_message(timeout=None) 
         """
         conn = self.connection
         if conn is None:
@@ -1277,20 +1224,6 @@ class PubSub:
         if not conn.is_connected:
             await conn.connect()
 
-        # Block=True: signal "no timeout" to conn.read_response via
-        # math.inf. The connection treats math.inf as the per-read
-        # opt-in for blocking indefinitely without falling back to
-        # self.socket_timeout. Reconnect/AUTH/HELLO/resubscribe
-        # operations performed by the retry layer continue to honor
-        # self.socket_timeout because they do not pass math.inf.
-        #
-        # TODO(next-major): when the async Connection.read_response
-        # default for ``timeout`` is changed to SENTINEL, passing
-        # ``timeout=None`` from this method will become the natural
-        # "no timeout" signal and the math.inf hand-off can be
-        # removed. That swap is a breaking change to the
-        # Connection.read_response signature so it must wait for a
-        # major release.
         read_timeout = math.inf if block else timeout
         response = await self._execute(
             conn,
@@ -1301,7 +1234,6 @@ class PubSub:
         )
 
         if conn.health_check_interval and response in self.health_check_response:
-            # ignore the health check message as user might not expect it
             return None
         return response
 
@@ -1329,7 +1261,7 @@ class PubSub:
         """
         encode = self.encoder.encode
         decode = self.encoder.decode
-        return {decode(encode(k)): v for k, v in data.items()}  # type: ignore[return-value]  # noqa: E501
+        return {decode(encode(k)): v for k, v in data.items()} 
 
     async def psubscribe(
         self, *args: ChannelT | Subscription, **kwargs: PubSubHandler
@@ -1346,9 +1278,6 @@ class PubSub:
         """
         new_patterns = parse_pubsub_subscriptions(args, kwargs)
         ret_val = await self.execute_command("PSUBSCRIBE", *new_patterns.keys())
-        # update the patterns dict AFTER we send the command. we don't want to
-        # subscribe twice to these patterns, once for the command and again
-        # for the reconnection.
         new_patterns = self._normalize_keys(new_patterns)
         self.patterns.update(new_patterns)
         self.pending_unsubscribe_patterns.difference_update(new_patterns)
@@ -1384,9 +1313,6 @@ class PubSub:
         """
         new_channels = parse_pubsub_subscriptions(args, kwargs)
         ret_val = await self.execute_command("SUBSCRIBE", *new_channels.keys())
-        # update the channels dict AFTER we send the command. we don't want to
-        # subscribe twice to these channels, once for the command and again
-        # for the reconnection.
         new_channels = self._normalize_keys(new_channels)
         self.channels.update(new_channels)
         self.pending_unsubscribe_channels.difference_update(new_channels)
@@ -1424,9 +1350,6 @@ class PubSub:
         """
         new_s_channels = parse_pubsub_subscriptions(args, kwargs)
         ret_val = await self.execute_command("SSUBSCRIBE", *new_s_channels.keys())
-        # update the s_channels dict AFTER we send the command. we don't want to
-        # subscribe twice to these channels, once for the command and again
-        # for the reconnection.
         new_s_channels = self._normalize_keys(new_s_channels)
         self.shard_channels.update(new_s_channels)
         self.pending_unsubscribe_shard_channels.difference_update(new_s_channels)
@@ -1524,7 +1447,6 @@ class PubSub:
                 sharded=True,
             )
 
-        # if this is an unsubscribe message, remove it from memory
         if message_type in self.UNSUBSCRIBE_MESSAGE_TYPES:
             if message_type == "punsubscribe":
                 pattern = response[1]
@@ -1543,7 +1465,6 @@ class PubSub:
                     self.channels.pop(channel, None)
 
         if message_type in self.PUBLISH_MESSAGE_TYPES:
-            # if there's a message handler, invoke it
             if message_type == "pmessage":
                 handler = self.patterns.get(message["pattern"], None)
             elif message_type == "smessage":
@@ -1557,8 +1478,6 @@ class PubSub:
                     handler(message)
                 return None
         elif message_type != "pong":
-            # this is a subscribe/unsubscribe message. ignore if we don't
-            # want them
             if ignore_subscribe_messages or self.ignore_subscribe_messages:
                 return None
 
@@ -1610,8 +1529,6 @@ class PubSub:
                 res = exception_handler(e, self)
                 if inspect.isawaitable(res):
                     await res
-            # Ensure that other tasks on the event loop get a chance to run
-            # if we didn't have to block for I/O anywhere.
             await asyncio.sleep(0)
 
 
@@ -1632,7 +1549,7 @@ CommandT = Tuple[Tuple[Union[str, bytes], ...], Mapping[str, Any]]
 CommandStackT = List[CommandT]
 
 
-class Pipeline(Redis):  # lgtm [py/init-calls-subclass]
+class Pipeline(Redis): 
     """
     Pipelines provide a way to transmit multiple commands to the Redis server
     in one transmission.  This is convenient for batch processing, such as
@@ -1696,34 +1613,20 @@ class Pipeline(Redis):  # lgtm [py/init-calls-subclass]
         self.command_stack = []
         self.scripts = set()
         try:
-            # make sure to reset the connection state in the event that we were
-            # watching something
             if self.watching and self.connection:
                 try:
-                    # call this manually since our unwatch or
-                    # immediate_execute_command methods can call reset()
                     await self.connection.send_command("UNWATCH")
                     await self.connection.read_response()
                 except ConnectionError:
-                    # disconnect will also remove any previous WATCHes
                     if self.connection:
                         await self.connection.disconnect()
                 except asyncio.CancelledError:
-                    # Disconnect so any unread UNWATCH reply does not get
-                    # served to the next caller that takes the connection.
                     if self.connection:
                         await self.connection.disconnect()
                     raise
         finally:
             self.watching = False
             self.explicit_transaction = False
-            # We can safely return the connection to the pool here since we're
-            # sure we're no longer WATCHing anything. Detach self.connection
-            # before awaiting release: if a second cancel aborts the await,
-            # the pipeline must not be left holding a reference to a
-            # connection that is being returned to the pool. Shield the
-            # release itself so a second cancel cannot split the pool's
-            # internal in-use/available bookkeeping mid-update.
             if self.connection:
                 connection, self.connection = self.connection, None
                 await asyncio.shield(self.connection_pool.release(connection))
@@ -1785,9 +1688,6 @@ class Pipeline(Redis):  # lgtm [py/init-calls-subclass]
                 retry_attempts=failure_count,
             )
         await conn.disconnect(error=error, failure_count=failure_count)
-        # if we were already watching a variable, the watch is no longer
-        # valid since this connection has died. raise a WatchError, which
-        # indicates the user should retry this transaction.
         if self.watching:
             await self.reset()
             raise WatchError(
@@ -1803,14 +1703,11 @@ class Pipeline(Redis):  # lgtm [py/init-calls-subclass]
         """
         command_name = args[0]
         conn = self.connection
-        # if this is the first call, we need a connection
         if not conn:
             conn = await self.connection_pool.get_connection()
             self.connection = conn
 
-        # Start timing for observability
         start_time = time.monotonic()
-        # Track actual retry attempts for error reporting
         actual_retry_attempts = 0
 
         def failure_callback(error, failure_count):
@@ -1865,7 +1762,7 @@ class Pipeline(Redis):  # lgtm [py/init-calls-subclass]
         self.command_stack.append((args, options))
         return self
 
-    async def _execute_transaction(  # noqa: C901
+    async def _execute_transaction( 
         self, connection: Connection, commands: CommandStackT, raise_on_error
     ):
         pre: CommandT = (("MULTI",), {})
@@ -1877,16 +1774,11 @@ class Pipeline(Redis):  # lgtm [py/init-calls-subclass]
         await connection.send_packed_command(all_cmds)
         errors = []
 
-        # parse off the response for MULTI
-        # NOTE: we need to handle ResponseErrors here and continue
-        # so that we read all the additional command messages from
-        # the socket
         try:
             await self.parse_response(connection, "_")
         except ResponseError as err:
             errors.append((0, err))
 
-        # and all the other commands
         for i, command in enumerate(commands):
             if EMPTY_RESPONSE in command[1]:
                 errors.append((i, command[1][EMPTY_RESPONSE]))
@@ -1897,7 +1789,6 @@ class Pipeline(Redis):  # lgtm [py/init-calls-subclass]
                     self.annotate_exception(err, i + 1, command[0])
                     errors.append((i, err))
 
-        # parse the EXEC.
         try:
             response = await self.parse_response(connection, "_")
         except ExecAbortError as err:
@@ -1905,13 +1796,11 @@ class Pipeline(Redis):  # lgtm [py/init-calls-subclass]
                 raise errors[0][1] from err
             raise
 
-        # EXEC clears any watched keys
         self.watching = False
 
         if response is None:
             raise WatchError("Watched variable changed.") from None
 
-        # put any parse errors into the response
         for i, e in errors:
             response.insert(i, e)
 
@@ -1922,18 +1811,15 @@ class Pipeline(Redis):  # lgtm [py/init-calls-subclass]
                 "Wrong number of response items from pipeline execution"
             ) from None
 
-        # find any errors in the response and raise if necessary
         if raise_on_error:
             self.raise_first_error(commands, response)
 
-        # We have to run response callbacks manually
         data = []
         for r, cmd in zip(response, commands):
             if not isinstance(r, Exception):
                 args, options = cmd
                 command_name = args[0]
 
-                # Remove keys entry, it needs only for cache.
                 options.pop("keys", None)
 
                 if command_name in self.response_callbacks:
@@ -1946,7 +1832,6 @@ class Pipeline(Redis):  # lgtm [py/init-calls-subclass]
     async def _execute_pipeline(
         self, connection: Connection, commands: CommandStackT, raise_on_error: bool
     ):
-        # build up all commands into a single request to increase network perf
         all_cmds = connection.pack_commands([args for args, _ in commands])
         await connection.send_packed_command(all_cmds)
 
@@ -1990,12 +1875,9 @@ class Pipeline(Redis):  # lgtm [py/init-calls-subclass]
         return result
 
     async def load_scripts(self):
-        # make sure all scripts that are about to be run on this pipeline exist
         scripts = list(self.scripts)
         immediate = self.immediate_execute_command
         shas = [s.sha for s in scripts]
-        # we can't use the normal script_* methods because they would just
-        # get buffered in the pipeline.
         exists = await immediate("SCRIPT EXISTS", *shas)
         if not all(exists):
             for s, exist in zip(scripts, exists):
@@ -2034,9 +1916,6 @@ class Pipeline(Redis):  # lgtm [py/init-calls-subclass]
                 retry_attempts=failure_count,
             )
         await conn.disconnect(error=error, failure_count=failure_count)
-        # if we were watching a variable, the watch is no longer valid
-        # since this connection has died. raise a WatchError, which
-        # indicates the user should retry this transaction.
         if self.watching:
             raise WatchError(
                 f"A {type(error).__name__} occurred while watching one or more keys"
@@ -2059,14 +1938,10 @@ class Pipeline(Redis):  # lgtm [py/init-calls-subclass]
         conn = self.connection
         if not conn:
             conn = await self.connection_pool.get_connection()
-            # assign to self.connection so reset() releases the connection
-            # back to the pool after we're done
             self.connection = conn
         conn = cast(Connection, conn)
 
-        # Start timing for observability
         start_time = time.monotonic()
-        # Track actual retry attempts for error reporting
         actual_retry_attempts = 0
 
         def failure_callback(error, failure_count):

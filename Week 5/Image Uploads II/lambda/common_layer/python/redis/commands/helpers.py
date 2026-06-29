@@ -16,11 +16,8 @@ from redis.typing import ChannelT, PubSubHandler, Subscription
 
 
 def list_or_args(keys: Any, args: Iterable[Any] | None) -> List[Any]:
-    # returns a single new list combining keys and args
     try:
         iter(keys)
-        # a string or bytes-like instance can be iterated, but indicates
-        # keys wasn't passed as a list
         if isinstance(keys, (bytes, str, bytearray, memoryview)):
             keys = [keys]
         else:
@@ -93,7 +90,7 @@ def parse_to_list(response):
             continue
 
         if isinstance(item_str, str) and item_str.lower() in special_values:
-            res.append(item_str)  # Keep as string
+            res.append(item_str) 
         else:
             try:
                 res.append(int(item))
@@ -110,7 +107,7 @@ def random_string(length=10):
     """
     Returns a random N character long string.
     """
-    return "".join(  # nosec
+    return "".join( 
         random.choice(string.ascii_lowercase) for x in range(length)
     )
 

@@ -1,4 +1,4 @@
-from redis import asyncio  # noqa
+from redis import asyncio 
 from redis.backoff import default_backoff
 from redis.client import Redis, StrictRedis
 from redis.driver_info import DriverInfo

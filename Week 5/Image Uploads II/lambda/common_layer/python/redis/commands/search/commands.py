@@ -82,11 +82,6 @@ WITHPAYLOADS = "WITHPAYLOADS"
 class SearchCommands:
     """Search commands."""
 
-    # Commands whose parsers require a ``query`` kwarg.  When invoked as a
-    # pipeline response-callback the kwarg is carried inside the options
-    # dict that ``execute_command`` stored earlier.  If the key is absent
-    # (e.g. a raw ``execute_command("FT.SEARCH", ...)`` call) return the
-    # response unparsed so we don't crash.
     _QUERY_REQUIRED_CMDS = frozenset(
         {SEARCH_CMD, AGGREGATE_CMD, CURSOR_CMD, HYBRID_CMD, PROFILE_CMD}
     )
@@ -98,8 +93,6 @@ class SearchCommands:
         ``AsyncPipeline.__init__`` so the mapping lives in a single place
         rather than being duplicated across all three classes.
         """
-        # ``protocol=2`` + ``legacy_responses=True``: original RESP2 wire
-        # parsers preserving the v5 Python shapes exactly.
         self._RESP2_MODULE_CALLBACKS = {
             INFO_CMD: self._parse_info,
             SEARCH_CMD: self._parse_search,
@@ -110,18 +103,9 @@ class SearchCommands:
             CONFIG_CMD: self._parse_config_get,
             SYNDUMP_CMD: self._parse_syndump,
         }
-        # Explicit ``protocol=3`` + ``legacy_responses=True`` keeps the
-        # pre-existing native RESP3 surface.  The only registered callback
-        # is for experimental HYBRID, which normalizes the native shape.
-        # FT.PROFILE stays on the old direct ``_parse_results`` special
-        # case and is not registered as a response callback.
         self._RESP3_MODULE_CALLBACKS = {
             HYBRID_CMD: self._parse_hybrid_search_resp3_native,
         }
-        # ``protocol=None`` + ``legacy_responses=True`` (the v8 default):
-        # the wire is RESP3 but the Python surface mirrors RESP2 legacy
-        # objects (``Result``, ``AggregateResult``, ``(result, profile)``
-        # tuple, ...).
         self._RESP3_TO_RESP2_LEGACY_MODULE_CALLBACKS = {
             INFO_CMD: self._parse_info_resp3_to_legacy,
             SEARCH_CMD: self._parse_search_resp3,
@@ -132,18 +116,10 @@ class SearchCommands:
             CONFIG_CMD: self._parse_config_get_resp3_to_legacy,
             SYNDUMP_CMD: self._parse_syndump_resp3,
         }
-        # Search pipelines historically returned raw wire responses in
-        # legacy mode.  The default connection now uses RESP3 on the wire,
-        # so these callbacks adapt only the default legacy pipeline case
-        # back to the raw RESP2 pipeline shapes users saw prior v8.0.
         self._RESP3_TO_RESP2_LEGACY_PIPELINE_CALLBACKS = {
             SEARCH_CMD: self._pipeline_parse_search_resp3_to_legacy,
             HYBRID_CMD: self._pipeline_parse_hybrid_search_resp3_to_legacy,
         }
-        # ``legacy_responses=False`` + RESP2 wire: enhanced RESP2 parsers
-        # producing the unified shape (``attributes`` as list of dicts,
-        # command-specific value normalisation where the approved shape
-        # requires it).
         self._RESP2_UNIFIED_MODULE_CALLBACKS = {
             INFO_CMD: self._parse_info_unified,
             SEARCH_CMD: self._parse_search,
@@ -154,10 +130,6 @@ class SearchCommands:
             CONFIG_CMD: self._parse_config_get_unified,
             SYNDUMP_CMD: self._parse_syndump_unified,
         }
-        # ``legacy_responses=False`` + RESP3 wire: keeps the native RESP3
-        # shape for commands whose unified shape diverges from the
-        # RESP3-to-RESP2-legacy adapter (``FT.INFO`` keeps the native
-        # nested dict, ``FT.PROFILE`` keeps profile data as a dict).
         self._RESP3_UNIFIED_MODULE_CALLBACKS = dict(
             self._RESP3_TO_RESP2_LEGACY_MODULE_CALLBACKS
         )
@@ -253,7 +225,6 @@ class SearchCommands:
             res.get("execution_time", 0),
         ]
 
-    # ---- RESP2 legacy parsers ----
 
     def _parse_info(self, res, **kwargs):
         it = map(str_if_bytes, res)
@@ -278,8 +249,6 @@ class SearchCommands:
             )
 
         results: List[Dict[str, Any]] = []
-        # the original results are a list of lists
-        # we convert them to a list of dicts
         for res_item in res_dict["results"]:
             item_dict = pairs_to_dict(res_item, decode_keys=True)
             results.append(item_dict)
@@ -325,21 +294,6 @@ class SearchCommands:
             if not _correction[2][0]:
                 continue
 
-            # For spellcheck output
-            # 1)  1) "TERM"
-            #     2) "{term1}"
-            #     3)  1)  1)  "{score1}"
-            #             2)  "{suggestion1}"
-            #         2)  1)  "{score2}"
-            #             2)  "{suggestion2}"
-            #
-            # Following dictionary will be made
-            # corrections = {
-            #     '{term1}': [
-            #         {'score': '{score1}', 'suggestion': '{suggestion1}'},
-            #         {'score': '{score2}', 'suggestion': '{suggestion2}'}
-            #     ]
-            # }
             corrections[_correction[1]] = [
                 {"score": _item[0], "suggestion": _item[1]} for _item in _correction[2]
             ]
@@ -352,10 +306,7 @@ class SearchCommands:
     def _parse_syndump(self, res, **kwargs):
         return {res[i]: res[i + 1] for i in range(0, len(res), 2)}
 
-    # ---- RESP2 unified parsers (legacy_responses=False) ----
 
-    # Known FT.INFO attribute keys that are followed by a value
-    # (key-value pairs in the RESP2 flat list).
     _INFO_ATTR_PAIR_KEYS = frozenset(
         {"identifier", "attribute", "type", "WEIGHT", "SEPARATOR", "PHONETIC"}
     )
@@ -441,10 +392,6 @@ class SearchCommands:
             )
 
         profile_data = res[1]
-        # >= 7.9.0 servers return a flat ``[key, value, ...]`` list at the
-        # top level; convert to dict to match the RESP3 profile shape.
-        # < 7.9.0 servers return a list-of-pairs whose first element is
-        # itself a list — leave as-is.
         if (
             isinstance(profile_data, list)
             and profile_data
@@ -469,7 +416,6 @@ class SearchCommands:
             for i in range(0, len(res), 2)
         }
 
-    # ---- RESP3 shared result parsers ----
 
     def _parse_search_resp3(self, res, **kwargs):
         """Parse RESP3 FT.SEARCH response into a Result object."""
@@ -486,7 +432,6 @@ class SearchCommands:
         query = kwargs.get("query")
         has_cursor = kwargs.get("has_cursor", False)
 
-        # When has_cursor is True, RESP3 returns [data_dict, cursor_id].
         cursor_id = 0
         if has_cursor and isinstance(res, list):
             data = res[0]
@@ -496,9 +441,6 @@ class SearchCommands:
 
         if data is None:
             data = {}
-        # On RESP3 connections with decode_responses=False the server's map
-        # keys arrive as bytes, so normalise structural keys to strings
-        # before lookup.  Mirrors ``Result.from_resp3``.
         data = {str_if_bytes(k): v for k, v in data.items()}
 
         warnings = [str_if_bytes(w) for w in data.get("warning", [])]
@@ -508,8 +450,6 @@ class SearchCommands:
         for result_item in data.get("results", []):
             result_item = {str_if_bytes(k): v for k, v in result_item.items()}
             extra_attrs = result_item.get("extra_attributes", {})
-            # Convert dict to flat list [key, value, key, value, ...]
-            # to match RESP2 row format consumers expect.
             flat = []
             for k, v in extra_attrs.items():
                 flat.append(k)
@@ -526,7 +466,6 @@ class SearchCommands:
 
         return AggregateResult(rows, cursor, None, total=total, warnings=warnings)
 
-    # ---- RESP3 HYBRID parsers ----
 
     def _parse_hybrid_search_resp3(self, res, **kwargs):
         """Parse RESP3 FT.HYBRID response into HybridResult/HybridCursorResult.
@@ -636,7 +575,6 @@ class SearchCommands:
             res["warnings"] = [str_if_bytes(w) for w in res["warnings"]]
         return res
 
-    # ---- RESP3 spellcheck parser ----
 
     def _parse_spellcheck_resp3(self, res, **kwargs):
         """Parse RESP3 FT.SPELLCHECK response into unified format.
@@ -648,9 +586,6 @@ class SearchCommands:
         """
         if not isinstance(res, dict):
             return self._parse_spellcheck(res, **kwargs)
-        # On RESP3 connections with decode_responses=False the server's map
-        # keys arrive as bytes, so normalise the structural ``results`` key
-        # to a string before lookup.  Mirrors ``Result.from_resp3``.
         res = {str_if_bytes(k): v for k, v in res.items()}
         corrections = {}
         results = res.get("results", {})
@@ -660,15 +595,9 @@ class SearchCommands:
             term_corrections = []
             for suggestion_dict in suggestions:
                 for suggestion, score in suggestion_dict.items():
-                    # Normalize score to match RESP2's string form: RESP3
-                    # returns a float (e.g. ``0.0``) but RESP2 returns the
-                    # string ``"0"``.
                     score_str = str(score)
                     if score_str.endswith(".0"):
                         score_str = score_str[:-2]
-                    # Preserve ``suggestion`` as-is so it keeps the
-                    # ``decode_responses`` shape RESP2 would produce
-                    # (``str`` when decoded, ``bytes`` otherwise).
                     term_corrections.append(
                         {"score": score_str, "suggestion": suggestion}
                     )
@@ -676,7 +605,6 @@ class SearchCommands:
                 corrections[term] = term_corrections
         return corrections
 
-    # ---- RESP3 profile parsers ----
 
     def _extract_resp3_profile_parts(self, res, **kwargs):
         """Extract ``(result, profile_data_dict)`` from a RESP3 FT.PROFILE
@@ -684,9 +612,6 @@ class SearchCommands:
         to strings but is otherwise left as the native RESP3 dict.
         """
         query = kwargs["query"]
-        # RESP3 returns a dict with "Results" and "Profile" keys.  Handle
-        # both decoded (str) and raw (bytes) keys.  Use ``is not None`` to
-        # avoid dropping falsy values such as empty dicts/lists.
         results_data = res.get("Results")
         if results_data is None:
             results_data = res.get(b"Results")
@@ -705,10 +630,6 @@ class SearchCommands:
             profile_data = res.get(b"profile")
         if profile_data is None:
             profile_data = res.get(1)
-        # On older servers (pre MOD-6816, e.g. Redis 7.2/7.4) the "Results"
-        # value is a bare list of result-item dicts, not the wrapper dict
-        # ``{"total_results": N, "results": [...], "warning": [...]}``.
-        # Wrap the list so downstream parsers receive the expected format.
         if isinstance(results_data, list):
             results_data = {
                 "total_results": len(results_data),
@@ -742,12 +663,6 @@ class SearchCommands:
             return self._parse_profile(res, **kwargs)
 
         result, profile_data = self._extract_resp3_profile_parts(res, **kwargs)
-        # Convert the RESP3 profile dict to the RESP2 list shape so
-        # consumers see the same structure as the RESP2 wire path.
-        # Post-7.9.0 servers return a top-level ``{"Shards": ...,
-        # "Coordinator": ...}`` dict which RESP2 wires as a flat
-        # alternating ``[key, value, key, value]`` list.  Pre-7.9.0
-        # servers return a nested list-of-pairs.
         if isinstance(profile_data, dict):
             flat_top = "Shards" in profile_data or "Coordinator" in profile_data
             profile_data = self._resp3_profile_dict_to_list(
@@ -825,7 +740,6 @@ class SearchCommands:
 
         return _convert(data, top_level=True)
 
-    # ---- RESP3 structural parsers ----
 
     @staticmethod
     def _to_string_recursive(obj):
@@ -975,7 +889,6 @@ class SearchCommands:
         Alter the existing search index by adding new fields. The index
         must already exist.
 
-        ### Parameters:
 
         - **fields**: a list of Field objects to add for the index
 
@@ -996,7 +909,6 @@ class SearchCommands:
         Replaced `drop_index` in RediSearch 2.0.
         Default behavior was changed to not delete the indexed documents.
 
-        ### Parameters:
 
         - **delete_documents**: If `True`, all documents will be deleted.
 
@@ -1140,7 +1052,6 @@ class SearchCommands:
         """
         Add a hash document to the index.
 
-        ### Parameters
 
         - **doc_id**: the document's id. This has to be an existing HASH key
                       in Redis that will hold the fields the index needs.
@@ -1159,7 +1070,6 @@ class SearchCommands:
         Delete a document from index
         Returns 1 if the document was deleted, 0 if not
 
-        ### Parameters
 
         - **delete_actual_document**: if set to True, RediSearch also delete
                                       the actual document if it is in the index
@@ -1199,7 +1109,6 @@ class SearchCommands:
         """
         Returns the full contents of multiple documents.
 
-        ### Parameters
 
         - **ids**: the ids of the saved documents.
 
@@ -1238,7 +1147,6 @@ class SearchCommands:
         args = [self.index_name]
 
         if isinstance(query, str):
-            # convert the query from a text to a query object
             query = Query(query)
         if not isinstance(query, Query):
             raise ValueError(f"Bad query type {type(query)}")
@@ -1256,7 +1164,6 @@ class SearchCommands:
         """
         Search the index for a given query, and return a result of documents
 
-        ### Parameters
 
         - **query**: the search query. Either a text for simple queries with
                      default parameters, or a Query object for complex queries.
@@ -1328,9 +1235,6 @@ class SearchCommands:
             options["cursor"] = True
             pieces.extend(cursor.build_args())
 
-        # Preserve HYBRID result values as bytes by default, matching the
-        # legacy RESP2 Search surface; selected LOAD fields can opt into
-        # decoding through HybridPostProcessingConfig.load(..., decode_field=True).
         options[NEVER_DECODE] = True
         options["query"] = query
 
@@ -1353,7 +1257,7 @@ class SearchCommands:
         args, query_text = self._mk_query_args(query, query_params=query_params)
         return self.execute_command(EXPLAIN_CMD, *args)
 
-    def explain_cli(self, query: Union[str, Query]):  # noqa
+    def explain_cli(self, query: Union[str, Query]): 
         raise NotImplementedError("EXPLAINCLI will not be implemented.")
 
     def aggregate(
@@ -1364,7 +1268,6 @@ class SearchCommands:
         """
         Issue an aggregation query.
 
-        ### Parameters
 
         **query**: This can be either an `AggregateRequest`, or a `Cursor`
 
@@ -1423,7 +1326,6 @@ class SearchCommands:
         Performs a search or aggregate command and collects performance
         information.
 
-        ### Parameters
 
         **query**: This can be either an `AggregateRequest` or `Query`.
         **limited**: If set to True, removes details of reader iterator.
@@ -1484,7 +1386,6 @@ class SearchCommands:
     def dict_add(self, name: str, *terms: List[str]):
         """Adds terms to a dictionary.
 
-        ### Parameters
 
         - **name**: Dictionary name.
         - **terms**: List of items for adding to the dictionary.
@@ -1498,7 +1399,6 @@ class SearchCommands:
     def dict_del(self, name: str, *terms: List[str]):
         """Deletes terms from a dictionary.
 
-        ### Parameters
 
         - **name**: Dictionary name.
         - **terms**: List of items for removing from the dictionary.
@@ -1512,7 +1412,6 @@ class SearchCommands:
     def dict_dump(self, name: str):
         """Dumps all terms in the given dictionary.
 
-        ### Parameters
 
         - **name**: Dictionary name.
 
@@ -1528,7 +1427,6 @@ class SearchCommands:
     def config_set(self, option: str, value: str) -> bool:
         """Set runtime configuration option.
 
-        ### Parameters
 
         - **option**: the name of the configuration option.
         - **value**: a value for the configuration option.
@@ -1546,7 +1444,6 @@ class SearchCommands:
     def config_get(self, option: str) -> str:
         """Get runtime configuration option value.
 
-        ### Parameters
 
         - **option**: the name of the configuration option.
 
@@ -1560,7 +1457,6 @@ class SearchCommands:
         """
         Return a list of all possible tag values
 
-        ### Parameters
 
         - **tagfield**: Tag field name
 
@@ -1573,7 +1469,6 @@ class SearchCommands:
         """
         Alias a search index - will fail if alias already exists
 
-        ### Parameters
 
         - **alias**: Name of the alias to create
 
@@ -1586,7 +1481,6 @@ class SearchCommands:
         """
         Updates an alias - will fail if alias does not already exist
 
-        ### Parameters
 
         - **alias**: Name of the alias to create
 
@@ -1599,7 +1493,6 @@ class SearchCommands:
         """
         Removes an alias to a search index
 
-        ### Parameters
 
         - **alias**: Name of the alias to delete
 
@@ -1616,7 +1509,6 @@ class SearchCommands:
 
         For more information see `FT.SUGADD <https://redis.io/commands/ft.sugadd/>`_.
         """  # noqa
-        # If Transaction is not False it will MULTI/EXEC which will error
         pipe = self.pipeline(transaction=False)
         for sug in suggestions:
             args = [SUGADD_COMMAND, key, sug.string, sug.score]
@@ -1760,7 +1652,6 @@ class AsyncSearchCommands(SearchCommands):
         """
         Search the index for a given query, and return a result of documents
 
-        ### Parameters
 
         - **query**: the search query. Either a text for simple queries with
                      default parameters, or a Query object for complex queries.
@@ -1832,9 +1723,6 @@ class AsyncSearchCommands(SearchCommands):
             options["cursor"] = True
             pieces.extend(cursor.build_args())
 
-        # Preserve HYBRID result values as bytes by default, matching the
-        # legacy RESP2 Search surface; selected LOAD fields can opt into
-        # decoding through HybridPostProcessingConfig.load(..., decode_field=True).
         options[NEVER_DECODE] = True
         options["query"] = query
 
@@ -1853,7 +1741,6 @@ class AsyncSearchCommands(SearchCommands):
         """
         Issue an aggregation query.
 
-        ### Parameters
 
         **query**: This can be either an `AggregateRequest`, or a `Cursor`
 
@@ -1881,7 +1768,6 @@ class AsyncSearchCommands(SearchCommands):
         """
         Issue a spellcheck query
 
-        ### Parameters
 
         **query**: search query.
         **distance***: the maximal Levenshtein distance for spelling
@@ -1912,7 +1798,6 @@ class AsyncSearchCommands(SearchCommands):
     async def config_set(self, option: str, value: str) -> bool:
         """Set runtime configuration option.
 
-        ### Parameters
 
         - **option**: the name of the configuration option.
         - **value**: a value for the configuration option.
@@ -1930,7 +1815,6 @@ class AsyncSearchCommands(SearchCommands):
     async def config_get(self, option: str) -> str:
         """Get runtime configuration option value.
 
-        ### Parameters
 
         - **option**: the name of the configuration option.
 
@@ -1971,7 +1855,6 @@ class AsyncSearchCommands(SearchCommands):
 
         For more information see `FT.SUGADD <https://redis.io/commands/ft.sugadd>`_.
         """  # noqa
-        # If Transaction is not False it will MULTI/EXEC which will error
         pipe = self.pipeline(transaction=False)
         for sug in suggestions:
             args = [SUGADD_COMMAND, key, sug.string, sug.score]

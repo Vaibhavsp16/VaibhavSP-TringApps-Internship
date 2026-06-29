@@ -1,5 +1,3 @@
-# Python implementation of low level MySQL client-server protocol
-# http://dev.mysql.com/doc/internals/en/client-server-protocol.html
 
 from .charset import MBLENGTH
 from .constants import FIELD_TYPE, SERVER_STATUS
@@ -18,7 +16,7 @@ UNSIGNED_INT24_COLUMN = 253
 UNSIGNED_INT64_COLUMN = 254
 
 
-def dump_packet(data):  # pragma: no cover
+def dump_packet(data): 
     def printable(data):
         if 32 <= data < 127:
             return chr(data)
@@ -80,7 +78,7 @@ class MysqlPacket:
         (Subsequent read() will return errors.)
         """
         result = self._data[self._position :]
-        self._position = None  # ensure no subsequent read()
+        self._position = None 
         return result
 
     def advance(self, length):
@@ -179,21 +177,15 @@ class MysqlPacket:
         return result
 
     def is_ok_packet(self):
-        # https://dev.mysql.com/doc/internals/en/packet-OK_Packet.html
         return self._data[0] == 0 and len(self._data) >= 7
 
     def is_eof_packet(self):
-        # http://dev.mysql.com/doc/internals/en/generic-response-packets.html#packet-EOF_Packet
-        # Caution: \xFE may be LengthEncodedInteger.
-        # If \xFE is LengthEncodedInteger header, 8bytes followed.
         return self._data[0] == 0xFE and len(self._data) < 9
 
     def is_auth_switch_request(self):
-        # http://dev.mysql.com/doc/internals/en/connection-phase-packets.html#packet-Protocol::AuthSwitchRequest
         return self._data[0] == 0xFE
 
     def is_extra_auth_data(self):
-        # https://dev.mysql.com/doc/internals/en/successful-authentication.html
         return self._data[0] == 1
 
     def is_resultset_packet(self):
@@ -212,7 +204,7 @@ class MysqlPacket:
 
     def raise_for_error(self):
         self.rewind()
-        self.advance(1)  # field_count == error (we already know that)
+        self.advance(1) 
         errno = self.read_uint16()
         if DEBUG:
             print("errno =", errno)
@@ -251,17 +243,15 @@ class FieldDescriptorPacket(MysqlPacket):
             self.flags,
             self.scale,
         ) = self.read_struct("<xHIBHBxx")
-        # 'default' is a length coded binary and is still in the buffer?
-        # not used for normal result sets...
 
     def description(self):
         """Provides a 7-item tuple compatible with the Python PEP249 DB Spec."""
         return (
             self.name,
             self.type_code,
-            None,  # TODO: display_length; should this be self.length?
-            self.get_column_length(),  # 'internal_size'
-            self.get_column_length(),  # 'precision'  # TODO: why!?!?
+            None, 
+            self.get_column_length(), 
+            self.get_column_length(), 
             self.scale,
             self.flags % 2 == 0,
         )

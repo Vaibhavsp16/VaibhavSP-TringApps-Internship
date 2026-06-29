@@ -177,8 +177,6 @@ class Pipeline(SearchCommands, RedisPipeline):
     _is_async_client: Literal[False] = False
 
     def __init__(self, connection_pool, response_callbacks, transaction, shard_hint):
-        # Copy the client's response_callbacks so search-specific entries
-        # don't pollute the shared dict.
         super().__init__(
             connection_pool, dict(response_callbacks), transaction, shard_hint
         )
@@ -186,13 +184,6 @@ class Pipeline(SearchCommands, RedisPipeline):
         self._register_module_callbacks()
 
     def _register_module_callbacks(self):
-        # Pipeline post-processing matches the pre-migration behavior:
-        # legacy mode returns raw pipeline responses like v8.0.0b1.  The
-        # default connection now uses RESP3 on the wire, so it gets a small
-        # adapter for the old raw RESP2 pipeline shape; explicit RESP3 keeps
-        # the previous native shape, with HYBRID's experimental normalizer.
-        # Only ``legacy_responses=False`` registers the unified parsers that
-        # post-process every response.
         protocol = get_protocol_version(self)
         if get_legacy_responses(self):
             if protocol is None:
@@ -208,7 +199,6 @@ class Pipeline(SearchCommands, RedisPipeline):
                 cmd_callbacks = self._RESP2_UNIFIED_MODULE_CALLBACKS
         for cmd, cb in cmd_callbacks.items():
             self.response_callbacks[cmd] = cb
-        # ``FT.CURSOR`` shares the AGGREGATE parser but isn't in the maps.
         agg_cb = cmd_callbacks.get(AGGREGATE_CMD)
         if agg_cb is not None:
             self.response_callbacks[CURSOR_CMD] = agg_cb
@@ -225,8 +215,6 @@ class AsyncPipeline(AsyncSearchCommands, AsyncioPipeline, Pipeline):
     _is_async_client: Literal[True] = True
 
     def __init__(self, connection_pool, response_callbacks, transaction, shard_hint):
-        # ``AsyncioPipeline.__init__`` is next in MRO and won't chain to
-        # the sync ``Pipeline.__init__``, so we set up callbacks here.
         super().__init__(
             connection_pool, dict(response_callbacks), transaction, shard_hint
         )

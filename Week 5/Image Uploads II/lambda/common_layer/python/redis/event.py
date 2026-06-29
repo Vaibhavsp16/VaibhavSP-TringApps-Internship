@@ -82,7 +82,6 @@ class EventException(Exception):
 
 
 class EventDispatcher(EventDispatcherInterface):
-    # TODO: Make dispatcher to accept external mappings.
     def __init__(
         self,
         event_listeners: Optional[
@@ -111,10 +110,6 @@ class EventDispatcher(EventDispatcherInterface):
             ],
         }
 
-        # Reentrant so a finalizer/listener that runs on the same thread
-        # while the lock is held (e.g. a weakref.finalize callback fired
-        # from cyclic GC during an allocation inside register_listeners /
-        # unregister_listeners) can re-enter without deadlocking.
         self._lock = threading.RLock()
         self._async_lock = None
 
@@ -122,10 +117,6 @@ class EventDispatcher(EventDispatcherInterface):
             self.register_listeners(event_listeners)
 
     def dispatch(self, event: object):
-        # Snapshot listeners under the lock, then release it before invoking
-        # them. Holding the lock across listener execution would turn any
-        # listener that calls register_listeners / unregister_listeners /
-        # dispatch back into the dispatcher into a deadlock.
         with self._lock:
             listeners = list(self._event_listeners_mapping.get(type(event), []))
         for listener in listeners:
@@ -135,9 +126,6 @@ class EventDispatcher(EventDispatcherInterface):
         if self._async_lock is None:
             self._async_lock = asyncio.Lock()
 
-        # Snapshot listeners under the lock, then release it before awaiting
-        # them. See the note in dispatch(); the same rationale applies here
-        # for dispatch_async re-entry from within a listener.
         async with self._async_lock:
             listeners = list(self._event_listeners_mapping.get(type(event), []))
         for listener in listeners:
@@ -174,8 +162,6 @@ class EventDispatcher(EventDispatcherInterface):
                 current = self._event_listeners_mapping.get(event_type)
                 if not current:
                     continue
-                # Remove by identity to match register semantics and to avoid
-                # reliance on listener __eq__ implementations.
                 self._event_listeners_mapping[event_type] = [
                     listener
                     for listener in current
@@ -539,10 +525,6 @@ class InitializeConnectionCountObservability(EventListenerInterface):
         version="7.4.0",
     )
     def listen(self, event: AfterPooledConnectionsInstantiationEvent):
-        # Initialize gauge only once, subsequent calls won't have an affect.
-        # Note: init_connection_count() and register_pools_connection_count()
-        # are deprecated and will emit their own warnings.
         init_connection_count()
 
-        # Register pools for connection count observability.
         register_pools_connection_count(event.connection_pools)

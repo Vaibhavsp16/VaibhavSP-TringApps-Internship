@@ -62,7 +62,6 @@ class SocketBuffer:
         try:
             while True:
                 data = sock.recv(socket_read_size)
-                # an empty string indicates the server shutdown the socket
                 if isinstance(data, bytes) and len(data) == 0:
                     raise ConnectionError(SERVER_CLOSED_CONNECTION_ERROR)
                 buf.write(data)
@@ -77,10 +76,6 @@ class SocketBuffer:
                 raise TimeoutError("Timeout reading from socket")
             return False
         except NONBLOCKING_EXCEPTIONS as ex:
-            # if we're in nonblocking mode and the recv raises a
-            # blocking error, simply return False indicating that
-            # there's no data to be read. otherwise raise the
-            # original exception.
             allowed = NONBLOCKING_EXCEPTION_ERROR_NUMBERS.get(ex.__class__, -1)
             if ex.errno == allowed:
                 if not raise_on_timeout:
@@ -99,12 +94,10 @@ class SocketBuffer:
         )
 
     def read(self, length: int, timeout: Union[float, object] = SENTINEL) -> bytes:
-        length = length + 2  # make sure to read the \r\n terminator
-        # BufferIO will return less than requested if buffer is short
+        length = length + 2 
         data = self._buffer.read(length)
         missing = length - len(data)
         if missing:
-            # fill up the buffer and read the remainder
             self._read_from_socket(length=missing, timeout=timeout)
             data += self._buffer.read(missing)
         return data[:-2]
@@ -113,7 +106,6 @@ class SocketBuffer:
         buf = self._buffer
         data = buf.readline()
         while not data.endswith(SYM_CRLF):
-            # there's more data in the socket that we need
             self._read_from_socket(timeout=timeout)
             data += buf.readline()
 
@@ -137,14 +129,10 @@ class SocketBuffer:
         """
         unread = self.unread_bytes()
 
-        # Only if we have read all of the buffer do we truncate, to
-        # reduce the amount of memory thrashing.  This heuristic
-        # can be changed or removed later.
         if unread > 0:
             return
 
         if unread > 0:
-            # move unread data to the front
             view = self._buffer.getbuffer()
             view[:unread] = view[-unread:]
         self._buffer.truncate(unread)
@@ -154,11 +142,6 @@ class SocketBuffer:
         try:
             self._buffer.close()
         except Exception:
-            # issue #633 suggests the purge/close somehow raised a
-            # BadFileDescriptor error. Perhaps the client ran out of
-            # memory or something else? It's probably OK to ignore
-            # any error being raised from purge/close since we're
-            # removing the reference to the instance below.
             pass
         self._buffer = None
         self._sock = None

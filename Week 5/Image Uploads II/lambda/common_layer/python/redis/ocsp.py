@@ -126,7 +126,6 @@ def _get_certificates(certs, issuer_cert, responder_name, responder_hash):
 def _get_pubkey_hash(certificate):
     pubkey = certificate.public_key()
 
-    # https://stackoverflow.com/a/46309453/600498
     if isinstance(pubkey, RSAPublicKey):
         h = pubkey.public_bytes(Encoding.DER, PublicFormat.PKCS1)
     elif isinstance(pubkey, EllipticCurvePublicKey):
@@ -193,7 +192,6 @@ class OCSPVerifier:
         server in the chain for a socket already wrapped with ssl.
         """
 
-        # convert the binary certificate to text
         der = self.SOCK.getpeercert(True)
         if der is False:
             raise ConnectionError("no certificate found for ssl peer")
@@ -215,7 +213,6 @@ class OCSPVerifier:
         except cryptography.x509.extensions.ExtensionNotFound:
             raise ConnectionError("No AIA information present in ssl certificate")
 
-        # fetch certificate issuers
         issuers = [
             i
             for i in aia
@@ -226,7 +223,6 @@ class OCSPVerifier:
         except IndexError:
             issuer = None
 
-        # now, the series of ocsp server entries
         ocsps = [
             i
             for i in aia
@@ -254,7 +250,6 @@ class OCSPVerifier:
         """Return the complete url to the ocsp"""
         orb = ocsp.OCSPRequestBuilder()
 
-        # add_certificate returns an initialized OCSPRequestBuilder
         orb = orb.add_certificate(
             cert, issuer_cert, cryptography.hazmat.primitives.hashes.SHA256()
         )
@@ -277,7 +272,6 @@ class OCSPVerifier:
 
         ocsp_url = self.build_certificate_url(server, cert, issuer_cert)
 
-        # HTTP 1.1 mandates the addition of the Host header in ocsp responses
         header = {
             "Host": urlparse(ocsp_url).netloc,
             "Content-Type": "application/ocsp-request",
@@ -295,7 +289,6 @@ class OCSPVerifier:
         the validity of OCSP revocation status.
         """
 
-        # validate the certificate
         try:
             cert, issuer_url, ocsp_server = self.components_from_socket()
             if issuer_url is None:

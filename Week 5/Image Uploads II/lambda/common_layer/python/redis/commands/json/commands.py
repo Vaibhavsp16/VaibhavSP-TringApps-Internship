@@ -391,7 +391,6 @@ class JSONCommands:
         """
         return self.execute_command("JSON.DEL", key, str(path))
 
-    # forget is an alias for delete
     forget = delete
 
     @overload
@@ -427,8 +426,6 @@ class JSONCommands:
             for p in args:
                 pieces.append(str(p))
 
-        # Handle case where key doesn't exist. The JSONDecoder would raise a
-        # TypeError exception since it can't decode None
         try:
             return self.execute_command("JSON.GET", *pieces, keys=[name])
         except TypeError:
@@ -514,7 +511,6 @@ class JSONCommands:
 
         pieces = [name, str(path), self._encode(obj)]
 
-        # Handle existential modifiers
         if nx and xx:
             raise Exception(
                 "nx and xx are mutually exclusive: use one, the "
@@ -704,9 +700,6 @@ class JSONCommands:
             for file in files:
                 file_path = os.path.join(root, file)
                 try:
-                    # TODO: rsplit(".") splits on all dots, mishandling paths
-                    # with dots in directories (e.g. /data/v1.2/file.json).
-                    # Should be rsplit(".", 1) — fix in a separate PR.
                     file_name = file_path.rsplit(".")[0]
                     self.set_file(
                         file_name,

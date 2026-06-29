@@ -18,7 +18,6 @@ class WeightedList(Generic[T]):
     def add(self, item: Any, weight: float) -> None:
         """Add item with weight, maintaining sorted order"""
         with self._lock:
-            # Find insertion point using binary search
             left, right = 0, len(self._items)
             while left < right:
                 mid = (left + right) // 2
@@ -66,7 +65,7 @@ class WeightedList(Generic[T]):
         with self._lock:
             items_copy = (
                 self._items.copy()
-            )  # Create snapshot as lock released after each 'yield'
+            ) 
 
         for item, weight in items_copy:
             yield item, weight

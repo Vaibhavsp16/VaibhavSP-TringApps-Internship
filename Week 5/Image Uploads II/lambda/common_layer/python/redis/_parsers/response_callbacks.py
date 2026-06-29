@@ -317,7 +317,6 @@ _RedisCallbacksRESP3 = {
 }
 
 
-# RESP2 wire, unified response shapes (``legacy_responses=False``).
 _RedisCallbacksRESP2Unified: dict[str, Callable[..., Any]] = {
     **_RedisCallbacksRESP2,
     **string_keys_to_dict(
@@ -364,7 +363,6 @@ _RedisCallbacksRESP2Unified: dict[str, Callable[..., Any]] = {
 }
 
 
-# RESP3 wire, unified response shapes (``legacy_responses=False``).
 _RedisCallbacksRESP3Unified: dict[str, Callable[..., Any]] = {
     **_RedisCallbacksRESP3,
     **string_keys_to_dict(
@@ -409,11 +407,6 @@ _RedisCallbacksRESP3Unified: dict[str, Callable[..., Any]] = {
 }
 
 
-# RESP3 wire converted back to the legacy RESP2 Python shapes. Only the
-# entries needed to undo RESP3-side differences are listed; everything
-# else falls through to ``_RedisCallbacks``. Scores are re-encoded to bytes
-# before being passed to ``score_cast_func`` so the callable observes the
-# same input type it would on a RESP2 connection.
 _RedisCallbacksRESP3toRESP2Legacy: dict[str, Callable[..., Any]] = {
     **string_keys_to_dict(
         "SDIFF SINTER SMEMBERS SUNION", lambda r: r and set(r) or set()

@@ -2,9 +2,6 @@ import re
 from . import err
 
 
-#: Regular expression for :meth:`Cursor.executemany`.
-#: executemany only supports simple bulk insert.
-#: You can use it to load large dataset.
 RE_INSERT_VALUES = re.compile(
     r"\s*((?:INSERT|REPLACE)\b.+\bVALUES?\s*)"
     + r"(\(\s*(?:%s|%\([^)]+\)s)\s*(?:,\s*(?:%s|%\([^)]+\)s)\s*)*\))"
@@ -31,10 +28,6 @@ class Cursor:
     the specification.
     """
 
-    #: Max statement size which :meth:`executemany` generates.
-    #:
-    #: Max size of allowed statement is max_allowed_packet - packet_header_size.
-    #: Default value of max_allowed_packet is 1048576.
     max_stmt_length = 1024000
 
     def __init__(self, connection):
@@ -109,8 +102,6 @@ class Cursor:
         elif isinstance(args, dict):
             return {key: conn.literal(val) for (key, val) in args.items()}
         else:
-            # If it's not a dictionary let's try escaping it anyways.
-            # Worst case it will throw a Value error
             return conn.escape(args)
 
     def mogrify(self, query, args=None):
@@ -291,8 +282,6 @@ class Cursor:
         """Fetch several rows."""
         self._check_executed()
         if self._rows is None:
-            # Django expects () for EOF.
-            # https://github.com/django/django/blob/0c1518ee429b01c145cf5b34eab01b0b92f8c246/django/db/backends/mysql/features.py#L8
             return ()
         end = self.rownumber + (size or self.arraysize)
         result = self._rows[self.rownumber : end]
@@ -363,7 +352,6 @@ class Cursor:
 
 
 class DictCursorMixin:
-    # You can override this to use OrderedDict or other dict-like types.
     dict_type = dict
 
     def _do_get_result(self):
@@ -480,8 +468,6 @@ class SSCursor(Cursor):
             rows.append(row)
             self.rownumber += 1
         if not rows:
-            # Django expects () for EOF.
-            # https://github.com/django/django/blob/0c1518ee429b01c145cf5b34eab01b0b92f8c246/django/db/backends/mysql/features.py#L8
             return ()
         return rows
 

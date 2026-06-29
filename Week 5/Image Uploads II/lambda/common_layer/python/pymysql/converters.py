@@ -12,7 +12,6 @@ def escape_item(val, charset, mapping=None):
         mapping = encoders
     encoder = mapping.get(type(val))
 
-    # Fallback to default when no encoder found
     if not encoder:
         try:
             encoder = mapping[str]
@@ -143,7 +142,6 @@ def Decimal2Literal(o, d):
 def _convert_second_fraction(s):
     if not s:
         return 0
-    # Pad zeros to ensure the fraction length in microseconds
     s = s.ljust(6, "0")
     return int(s[:6])
 
@@ -301,12 +299,6 @@ def through(x):
     return x
 
 
-# def convert_bit(b):
-#    b = "\x00" * (8 - len(b)) + b # pad w/ zeroes
-#    return struct.unpack(">Q", b)[0]
-#
-#     the snippet above is right, but MySQLdb doesn't process bits,
-#     so we shouldn't either
 convert_bit = through
 
 
@@ -357,9 +349,7 @@ decoders = {
 }
 
 
-# for MySQLdb compatibility
 conversions = encoders.copy()
 conversions.update(decoders)
 Thing2Literal = escape_str
 
-# Run doctests with `pytest --doctest-modules pymysql/converters.py`

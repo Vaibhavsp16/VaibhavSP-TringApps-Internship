@@ -1,4 +1,3 @@
-# https://dev.mysql.com/doc/internals/en/capability-flags.html#packet-Protocol::CapabilityFlags
 LONG_PASSWORD = 1
 FOUND_ROWS = 1 << 1
 LONG_FLAG = 1 << 2
@@ -32,7 +31,6 @@ CAPABILITIES = (
     | CONNECT_ATTRS
 )
 
-# Not done yet
 HANDLE_EXPIRED_PASSWORDS = 1 << 22
 SESSION_TRACK = 1 << 23
 DEPRECATE_EOF = 1 << 24

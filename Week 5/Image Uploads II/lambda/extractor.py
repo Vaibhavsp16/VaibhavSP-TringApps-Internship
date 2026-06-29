@@ -41,14 +41,13 @@ def handler(event, context):
         try:
             s3_metadata = s3.head_object(Bucket=bucket, Key=key)
             metadata = s3_metadata.get('Metadata', {})
+            uploader_sub = metadata.get('uploader-sub', 'unknown-user-sub')
             uploader_email = metadata.get('uploader-email', 'unknown-user@example.com')
             image_id = metadata.get('image-id')
             
-            # Fallback if metadata not set
             if not image_id:
                 try:
                     image_id = key.split('-')[0]
-                    # Simple validation of UUID
                     if len(image_id) != 36:
                         image_id = None
                 except Exception:
@@ -75,7 +74,6 @@ def handler(event, context):
             
             print(f"File {key} (ImageID: {image_id}) uploaded by: {uploader_email} | Size: {file_size_str}")
             
-            # 1. Update status to 'EXTRACTED' in RDS
             if image_id:
                 conn = get_db_connection()
                 try:
@@ -93,14 +91,12 @@ def handler(event, context):
                 finally:
                     conn.close()
 
-            # 2. Invalidate cache in Redis
             try:
                 r = get_redis_client()
-                r.delete(f"user:history:{uploader_email}")
+                r.delete(f"user:history:{uploader_sub}")
             except Exception as cache_err:
                 print(f"Redis cache invalidation failed (non-blocking): {str(cache_err)}")
 
-            # 3. Detect labels with Rekognition
             rek_response = rekognition.detect_labels(
                 Image={
                     'S3Object': {
@@ -118,11 +114,11 @@ def handler(event, context):
             ]
             print(f"AI Labels detected: {labels}")
             
-            # 4. Push message to SQS Queue
             message_body = {
                 "image_id": image_id,
                 "bucket": bucket,
                 "key": key,
+                "uploader_sub": uploader_sub,
                 "uploader_email": uploader_email,
                 "labels": labels,
                 "file_size": file_size_str,

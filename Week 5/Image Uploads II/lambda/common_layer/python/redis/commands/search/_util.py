@@ -4,4 +4,4 @@ def to_string(s, encoding: str = "utf-8"):
     elif isinstance(s, bytes):
         return s.decode(encoding, "ignore")
     else:
-        return s  # Not a string we care about
+        return s 

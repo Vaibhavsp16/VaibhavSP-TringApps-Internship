@@ -32,7 +32,6 @@ from redis.utils import deprecated_args, deprecated_function
 
 logger = logging.getLogger(__name__)
 
-# Optional imports - OTel SDK may not be installed
 try:
     from opentelemetry.metrics import Meter
 
@@ -90,7 +89,6 @@ class RedisMetricsCollector:
         self.config = config
         self.attr_builder = AttributeBuilder()
 
-        # Initialize enabled metric instruments
 
         if MetricGroup.RESILIENCY in self.config.metric_groups:
             self._init_resiliency_metrics()
@@ -156,13 +154,8 @@ class RedisMetricsCollector:
             description="Connections that have been handed off (e.g., after a MOVING notification)",
         )
 
-        # DEPRECATED: This attribute is kept for backward compatibility.
-        # It requires manual initialization via init_connection_count() with a callback.
-        # Use connection_count_updown instead for push-based tracking.
-        # Will be removed in the next major version.
         self.connection_count = None
 
-        # New push-based connection count tracking via UpDownCounter
         self.connection_count_updown = self.meter.create_up_down_counter(
             name="db.client.connection.count",
             unit="{connection}",
@@ -236,7 +229,6 @@ class RedisMetricsCollector:
             description="The total number of bytes saved by using CSC",
         )
 
-    # Resiliency metric recording methods
 
     def record_error_count(
         self,
@@ -387,9 +379,6 @@ class RedisMetricsCollector:
         if MetricGroup.CONNECTION_BASIC not in self.config.metric_groups:
             return
 
-        # DEPRECATED: Create observable gauge for backward compatibility
-        # This gauge uses a different metric name to avoid conflicts with
-        # the new push-based connection_count_updown counter
         self.connection_count = self.meter.create_observable_gauge(
             name="db.client.connection.count.deprecated",
             unit="{connection}",
@@ -469,7 +458,6 @@ class RedisMetricsCollector:
         attrs = self.attr_builder.build_connection_attributes(pool_name=pool_name)
         self.connection_wait_time.record(duration_seconds, attributes=attrs)
 
-    # Command execution metric recording methods
 
     @deprecated_args(
         args_to_warn=["batch_size"],
@@ -483,7 +471,7 @@ class RedisMetricsCollector:
         server_address: Optional[str] = None,
         server_port: Optional[int] = None,
         db_namespace: Optional[int] = None,
-        batch_size: Optional[int] = None,  # noqa
+        batch_size: Optional[int] = None, 
         error_type: Optional[Exception] = None,
         network_peer_address: Optional[str] = None,
         network_peer_port: Optional[int] = None,
@@ -509,11 +497,9 @@ class RedisMetricsCollector:
         if not hasattr(self, "operation_duration"):
             return
 
-        # Check if this command should be tracked
         if not self.config.should_track_command(command_name):
             return
 
-        # Build attributes
         attrs = self.attr_builder.build_base_attributes(
             server_address=server_address,
             server_port=server_port,
@@ -601,7 +587,6 @@ class RedisMetricsCollector:
         attrs = self.attr_builder.build_connection_attributes(pool_name=pool_name)
         self.connection_handoff.add(1, attributes=attrs)
 
-    # PubSub metric recording methods
 
     def record_pubsub_message(
         self,
@@ -627,7 +612,6 @@ class RedisMetricsCollector:
         )
         self.pubsub_messages.add(1, attributes=attrs)
 
-    # Streaming metric recording methods
 
     @deprecated_args(
         args_to_warn=["consumer_name"],
@@ -639,7 +623,7 @@ class RedisMetricsCollector:
         lag_seconds: float,
         stream_name: Optional[str] = None,
         consumer_group: Optional[str] = None,
-        consumer_name: Optional[str] = None,  # noqa
+        consumer_name: Optional[str] = None, 
     ) -> None:
         """
         Record the lag of a streaming message.
@@ -659,7 +643,6 @@ class RedisMetricsCollector:
         )
         self.stream_lag.record(lag_seconds, attributes=attrs)
 
-    # CSC metric recording methods
 
     def record_csc_request(
         self,
@@ -711,7 +694,6 @@ class RedisMetricsCollector:
         attrs = self.attr_builder.build_csc_attributes()
         self.csc_network_saved.add(bytes_saved, attributes=attrs)
 
-    # Utility methods
 
     @staticmethod
     def monotonic_time() -> float:

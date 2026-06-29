@@ -525,7 +525,7 @@
                     const img = new Image();
                     img.onload = function() {
                         const canvas = document.createElement('canvas');
-                        const max_size = 500; // 500px high-resolution preview
+                        const max_size = 500; 
                         let width = img.width;
                         let height = img.height;
                         
@@ -554,7 +554,7 @@
         }
 
         let pollingInterval = null;
-        let serverHistory = []; // Keep local copy of loaded history
+        let serverHistory = []; 
 
         function startPollingStatus(fileName) {
             if (pollingInterval) clearInterval(pollingInterval);
@@ -563,7 +563,7 @@
             
             pollingInterval = setInterval(async () => {
                 pollAttempts++;
-                if (pollAttempts > 20) { // 60 seconds timeout
+                if (pollAttempts > 20) { 
                     clearInterval(pollingInterval);
                     return;
                 }
@@ -614,11 +614,9 @@
             updateStep("step5", "");
 
             try {
-                // 1. Generate client-side base64 thumbnail preview
                 activeStatus.innerText = "Generating Base64 preview...";
                 const base64Thumbnail = await generateBase64Thumbnail(file);
 
-                // 2. Request secure pre-signed URL from API Gateway (sends thumbnail to RDS)
                 activeStatus.innerText = "Requesting secure pre-signed URL...";
                 const res = await fetch(CONFIG.apiUrl, {
                     method: "POST",
@@ -640,12 +638,12 @@
                 updateStep("step3", "active");
                 activeStatus.innerText = "Uploading image to S3...";
 
-                // 3. Upload raw binary directly to S3
                 const s3Res = await fetch(data.uploadUrl, {
                     method: "PUT",
                     headers: {
                         "Content-Type": file.type,
                         "x-amz-meta-uploader-email": userEmail,
+                        "x-amz-meta-uploader-sub": data.uploaderSub,
                         "x-amz-meta-image-id": data.imageId
                     },
                     body: file
@@ -657,7 +655,6 @@
                 updateStep("step4", "active");
                 activeStatus.innerText = "Waiting in SQS Queue...";
 
-                // 4. Start polling server-backed status
                 startPollingStatus(file.name);
 
             } catch (err) {

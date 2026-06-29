@@ -8,7 +8,7 @@ from ..helpers import (
     get_protocol_version,
     parse_to_list,
 )
-from .commands import *  # noqa
+from .commands import * 
 from .info import BFInfo, CFInfo, CMSInfo, TDigestInfo, TopKInfo
 
 
@@ -97,12 +97,9 @@ class AbstractBloom:
 class _CMSBloomBase(CMSCommands, AbstractBloom):
     def __init__(self, client, **kwargs):
         """Create a new RedisBloom client."""
-        # Set the module commands' callbacks
         _MODULE_CALLBACKS = {
             CMS_INITBYDIM: bool_ok,
             CMS_INITBYPROB: bool_ok,
-            # CMS_INCRBY: spaceHolder,
-            # CMS_QUERY: spaceHolder,
             CMS_MERGE: bool_ok,
         }
 
@@ -140,11 +137,8 @@ class _CMSBloomBase(CMSCommands, AbstractBloom):
 class _TOPKBloomBase(TOPKCommands, AbstractBloom):
     def __init__(self, client, **kwargs):
         """Create a new RedisBloom client."""
-        # Set the module commands' callbacks
         _MODULE_CALLBACKS = {
             TOPK_RESERVE: bool_ok,
-            # TOPK_QUERY: spaceHolder,
-            # TOPK_COUNT: spaceHolder,
         }
 
         _RESP2_MODULE_CALLBACKS = {
@@ -189,18 +183,8 @@ class _TOPKBloomBase(TOPKCommands, AbstractBloom):
 class _CFBloomBase(CFCommands, AbstractBloom):
     def __init__(self, client, **kwargs):
         """Create a new RedisBloom client."""
-        # Set the module commands' callbacks
         _MODULE_CALLBACKS = {
             CF_RESERVE: bool_ok,
-            # CF_ADD: spaceHolder,
-            # CF_ADDNX: spaceHolder,
-            # CF_INSERT: spaceHolder,
-            # CF_INSERTNX: spaceHolder,
-            # CF_EXISTS: spaceHolder,
-            # CF_DEL: spaceHolder,
-            # CF_COUNT: spaceHolder,
-            # CF_SCANDUMP: spaceHolder,
-            # CF_LOADCHUNK: spaceHolder,
         }
 
         _RESP2_MODULE_CALLBACKS = {
@@ -237,12 +221,8 @@ class _CFBloomBase(CFCommands, AbstractBloom):
 class _TDigestBloomBase(TDigestCommands, AbstractBloom):
     def __init__(self, client, **kwargs):
         """Create a new RedisBloom client."""
-        # Set the module commands' callbacks
         _MODULE_CALLBACKS = {
             TDIGEST_CREATE: bool_ok,
-            # TDIGEST_RESET: bool_ok,
-            # TDIGEST_ADD: spaceHolder,
-            # TDIGEST_MERGE: spaceHolder,
         }
 
         _RESP2_MODULE_CALLBACKS = {
@@ -296,17 +276,8 @@ class _TDigestBloomBase(TDigestCommands, AbstractBloom):
 class _BFBloomBase(BFCommands, AbstractBloom):
     def __init__(self, client, **kwargs):
         """Create a new RedisBloom client."""
-        # Set the module commands' callbacks
         _MODULE_CALLBACKS = {
             BF_RESERVE: bool_ok,
-            # BF_ADD: spaceHolder,
-            # BF_MADD: spaceHolder,
-            # BF_INSERT: spaceHolder,
-            # BF_EXISTS: spaceHolder,
-            # BF_MEXISTS: spaceHolder,
-            # BF_SCANDUMP: spaceHolder,
-            # BF_LOADCHUNK: spaceHolder,
-            # BF_CARD: spaceHolder,
         }
 
         _RESP2_MODULE_CALLBACKS = {

@@ -314,7 +314,6 @@ class DefaultCommandExecutor(SyncCommandExecutor, BaseCommandExecutor):
         """
 
         def wrapper():
-            # On each retry we need to check active database as it might change.
             self._check_active_database()
             return callback()
 

@@ -16,7 +16,7 @@ def from_url(url: str, **kwargs: Any) -> "Redis":
     return Redis.from_url(url, **kwargs)
 
 
-class pipeline:  # noqa: N801
+class pipeline: 
     def __init__(self, redis_obj: "Redis"):
         self.p: "Pipeline" = redis_obj.pipeline()
 

@@ -14,10 +14,8 @@ class BackgroundScheduler:
         self._event_loops = []
         self._lock = threading.Lock()
         self._stopped = False
-        # Dedicated loop for health checks - ensures all health checks use the same loop
         self._health_check_loop: asyncio.AbstractEventLoop | None = None
         self._health_check_thread: threading.Thread | None = None
-        # Event to signal when health check loop is ready
         self._health_check_loop_ready = threading.Event()
 
     def __del__(self):
@@ -36,7 +34,6 @@ class BackgroundScheduler:
                 self._next_timer.cancel()
                 self._next_timer = None
 
-            # Stop all event loops
             for loop in self._event_loops:
                 if loop.is_running():
                     loop.call_soon_threadsafe(loop.stop)
@@ -51,7 +48,6 @@ class BackgroundScheduler:
             if self._stopped:
                 return
 
-        # Run loop in a separate thread to unblock main thread.
         loop = asyncio.new_event_loop()
 
         with self._lock:
@@ -72,7 +68,6 @@ class BackgroundScheduler:
             if self._stopped:
                 return
 
-        # Run loop in a separate thread to unblock main thread.
         loop = asyncio.new_event_loop()
 
         with self._lock:
@@ -98,13 +93,11 @@ class BackgroundScheduler:
             if self._stopped:
                 return
 
-        # Use the shared health check loop, creating it if needed
         self._ensure_health_check_loop()
 
         with self._lock:
             loop = self._health_check_loop
 
-        # Schedule recurring execution in the shared loop
         loop.call_soon_threadsafe(
             self._call_later_recurring_coro, loop, interval, coro, *args
         )
@@ -142,18 +135,15 @@ class BackgroundScheduler:
             if self._stopped:
                 raise RuntimeError("Scheduler is stopped")
 
-        # Ensure the shared loop exists
         self._ensure_health_check_loop()
 
         with self._lock:
             loop = self._health_check_loop
 
-        # Submit the coroutine to the shared loop and wait for result
         future = asyncio.run_coroutine_threadsafe(coro(*args), loop)
         try:
             return future.result(timeout=timeout)
         except TimeoutError:
-            # Cancel the future to avoid leaving orphaned tasks
             future.cancel()
             raise
 
@@ -175,7 +165,6 @@ class BackgroundScheduler:
             if self._stopped:
                 return
 
-        # Ensure the shared loop exists
         self._ensure_health_check_loop()
 
         with self._lock:
@@ -191,7 +180,6 @@ class BackgroundScheduler:
                     exc_info=future.exception(),
                 )
 
-        # Schedule on the shared loop without waiting
         future = asyncio.run_coroutine_threadsafe(coro(*args), loop)
         future.add_done_callback(on_complete)
 
@@ -205,7 +193,6 @@ class BackgroundScheduler:
         Raises:
             RuntimeError: If the loop fails to start within the timeout.
         """
-        # Fast path: if loop is already running, return immediately
         if self._health_check_loop_ready.is_set():
             with self._lock:
                 if (
@@ -215,34 +202,24 @@ class BackgroundScheduler:
                     return
 
         with self._lock:
-            # Double-check after acquiring the lock
             if (
                 self._health_check_loop is not None
                 and self._health_check_loop.is_running()
             ):
                 return
 
-            # Clear the event - we're about to start a new loop
             self._health_check_loop_ready.clear()
 
-            # Create a new event loop for health checks
             self._health_check_loop = asyncio.new_event_loop()
             self._event_loops.append(self._health_check_loop)
 
-            # Start the loop in a background thread
             self._health_check_thread = threading.Thread(
                 target=self._run_health_check_loop,
                 daemon=True,
             )
             self._health_check_thread.start()
 
-            # Wait for loop to be running INSIDE the lock with a timeout.
-            # This prevents other threads from trying to create another loop
-            # before this one is fully started, while avoiding permanent deadlock
-            # if the background thread fails to start the loop.
             if not self._health_check_loop_ready.wait(timeout=timeout):
-                # Timeout expired - the loop failed to start
-                # Clean up the failed loop to allow retry
                 failed_loop = self._health_check_loop
                 self._health_check_loop = None
                 if failed_loop in self._event_loops:
@@ -259,8 +236,6 @@ class BackgroundScheduler:
         """Run the shared health check event loop."""
         asyncio.set_event_loop(self._health_check_loop)
 
-        # Signal that the loop is ready before running
-        # Use call_soon to signal after run_forever starts processing
         self._health_check_loop.call_soon(self._health_check_loop_ready.set)
 
         try:
@@ -310,17 +285,14 @@ class BackgroundScheduler:
 
         def on_complete(task: asyncio.Task):
             """Callback when coroutine completes - schedule next execution."""
-            # Log any exceptions (prevents "Task exception was never retrieved")
             if task.cancelled():
-                pass  # Task was cancelled, ignore
+                pass 
             elif task.exception() is not None:
-                # Log the exception but don't crash the scheduler
                 logging.getLogger(__name__).debug(
                     "Background coroutine raised exception",
                     exc_info=task.exception(),
                 )
 
-            # Schedule next execution after completion
             with self._lock:
                 if self._stopped:
                     return
@@ -337,10 +309,8 @@ class BackgroundScheduler:
 
         try:
             task = asyncio.ensure_future(coro(*args))
-            # Add callback to handle completion and schedule next run
             task.add_done_callback(on_complete)
         except Exception:
-            # If scheduling fails (e.g., during shutdown), try to schedule next run anyway
             with self._lock:
                 if self._stopped:
                     return
@@ -371,9 +341,6 @@ class BackgroundScheduler:
             if self._stopped:
                 return
 
-        # This is an async method - it must be awaited in a running event loop.
-        # If get_running_loop() raises RuntimeError, let it propagate as that
-        # indicates a programming error (calling async method outside async context).
         loop = asyncio.get_running_loop()
 
         def schedule_next():
@@ -391,7 +358,6 @@ class BackgroundScheduler:
 
             def on_complete(task: asyncio.Task):
                 """Callback when coroutine completes - schedule next execution."""
-                # Log any exceptions (prevents "Task exception was never retrieved")
                 if task.cancelled():
                     pass
                 elif task.exception() is not None:
@@ -399,20 +365,17 @@ class BackgroundScheduler:
                         "Recurring async coroutine raised exception",
                         exc_info=task.exception(),
                     )
-                # Schedule next execution AFTER this one completes
                 schedule_next()
 
             try:
                 task = asyncio.ensure_future(coro(*args))
                 task.add_done_callback(on_complete)
             except Exception:
-                # If scheduling fails, still try to schedule next run
                 logging.getLogger(__name__).debug(
                     "Failed to schedule recurring async coroutine", exc_info=True
                 )
                 schedule_next()
 
-        # Schedule first execution
         self._next_timer = loop.call_later(interval, execute_and_reschedule)
 
     def _call_later(
@@ -454,7 +417,6 @@ class BackgroundScheduler:
         try:
             callback(*args)
         except Exception:
-            # Silently ignore exceptions during shutdown
             pass
 
         with self._lock:
@@ -482,11 +444,9 @@ def _start_event_loop_in_thread(
         event_loop.run_forever()
     finally:
         try:
-            # Clean up pending tasks
             pending = asyncio.all_tasks(event_loop)
             for task in pending:
                 task.cancel()
-            # Run loop once more to process cancellations
             event_loop.run_until_complete(
                 asyncio.gather(*pending, return_exceptions=True)
             )

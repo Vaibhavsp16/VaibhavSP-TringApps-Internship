@@ -86,9 +86,6 @@ class MultiDBClient(RedisModuleCommands, CoreCommands):
         try:
             self.close()
         except Exception:
-            # Suppress exceptions during garbage collection.
-            # close() may fail if called during interpreter shutdown
-            # or while an event loop is already running.
             pass
 
     def initialize(self):
@@ -96,14 +93,8 @@ class MultiDBClient(RedisModuleCommands, CoreCommands):
         Perform initialization of databases to define their initial state.
         """
 
-        # Initial databases check to define initial state.
-        # Uses run_coro_sync to run in the shared background loop - this ensures
-        # connection pools created during initial health check remain valid for
-        # subsequent recurring health checks (they use the same event loop).
         self._bg_scheduler.run_coro_sync(self._perform_initial_health_check)
 
-        # Starts recurring health checks on the background.
-        # Uses run_recurring_coro which shares the same event loop as run_coro_sync
         self._bg_scheduler.run_recurring_coro(
             self._health_check_interval,
             self._check_databases_health,
@@ -112,13 +103,9 @@ class MultiDBClient(RedisModuleCommands, CoreCommands):
         is_active_db_found = False
 
         for database, weight in self._databases:
-            # Set on state changed callback for each circuit.
             database.circuit.on_state_changed(self._on_circuit_state_change_callback)
 
-            # Set states according to a weights and circuit state
             if database.circuit.state == CBState.CLOSED and not is_active_db_found:
-                # Directly set the active database during initialization
-                # without recording a geo failover metric
                 self.command_executor._active_database = database
                 is_active_db_found = True
 
@@ -173,12 +160,8 @@ class MultiDBClient(RedisModuleCommands, CoreCommands):
             config: DatabaseConfig object that contains the database configuration.
             skip_initial_health_check: If True, adds the database even if it is unhealthy.
         """
-        # The retry object is not used in the lower level clients, so we can safely remove it.
-        # We rely on command_retry in terms of global retries.
         config.client_kwargs["retry"] = Retry(retries=0, backoff=NoBackoff())
 
-        # Maintenance notifications are disabled by default in underlying clients,
-        # but user can override this by providing their own config.
         if "maint_notifications_config" not in config.client_kwargs:
             config.client_kwargs["maint_notifications_config"] = (
                 MaintNotificationsConfig(enabled=False)
@@ -321,7 +304,6 @@ class MultiDBClient(RedisModuleCommands, CoreCommands):
         with self._hc_lock:
             health_checks = list(self._health_checks)
 
-        # Health check will setup circuit state
         is_healthy = await self._health_check_policy.execute(health_checks, database)
 
         if not is_healthy:
@@ -348,7 +330,6 @@ class MultiDBClient(RedisModuleCommands, CoreCommands):
 
         results = await asyncio.gather(*self._hc_tasks, return_exceptions=True)
 
-        # Map end results to databases
         db_results = {
             task_to_db[task]: result for task, result in zip(self._hc_tasks, results)
         }
@@ -416,10 +397,6 @@ class MultiDBClient(RedisModuleCommands, CoreCommands):
         """
         Closes the client and all its resources.
         """
-        # Close health check policy BEFORE stopping the scheduler.
-        # The policy's connection pools were created on the shared health check
-        # event loop, so they must be disconnected on that same loop to avoid
-        # leaking sockets/file descriptors.
         if self._bg_scheduler:
             try:
                 self._bg_scheduler.run_coro_sync(self._health_check_policy.close)
@@ -525,9 +502,6 @@ class PubSub:
 
     def __del__(self) -> None:
         try:
-            # if this object went out of scope prior to shutting down
-            # subscriptions, close the connection manually before
-            # returning it to the connection pool
             self.reset()
         except Exception:
             pass
