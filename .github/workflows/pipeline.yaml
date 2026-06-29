@@ -5,6 +5,10 @@ on:
     branches:
       - 'main'
       - 'feature**'
+    paths:
+      - 'Week 5/template.yaml'
+      - 'Week 5/hello.py'
+      - '.github/workflows/pipeline.yaml'
   delete:
     branches:
       - 'feature**'

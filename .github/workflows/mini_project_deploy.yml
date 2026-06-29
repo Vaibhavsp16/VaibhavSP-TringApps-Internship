@@ -1,0 +1,48 @@
+name: Mini-Project Image Uploads II Deploy Pipeline
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "Week 5/Image Uploads II/**"
+      - ".github/workflows/mini_project_deploy.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Terraform Deploy Mini-Project
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Authenticate Cloud Session
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Install Terraform CLI
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Initialize Infrastructure Engine
+        run: |
+          cd "Week 5/Image Uploads II"
+          terraform init
+
+      - name: Apply Infrastructure Changes
+        run: |
+          cd "Week 5/Image Uploads II"
+          terraform apply -auto-approve
