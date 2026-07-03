@@ -1,3 +1,13 @@
+terraform {
+  backend "s3" {
+    bucket         = "vaibhav-terraform-state-285977275740"
+    key            = "image-uploads-ii/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "vaibhav-terraform-lock"
+    encrypt        = true
+  }
+}
+
 provider "aws" {
   region = var.aws_region
 }
