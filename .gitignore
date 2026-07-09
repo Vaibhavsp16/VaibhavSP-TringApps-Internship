@@ -41,3 +41,8 @@ __pycache__/
 # Exclude Weekly Guide folder
 Weekly Guide/
 
+# Exclude local lock and debug files
+.terraform.lock.hcl
+response.json
+
+
