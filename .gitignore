@@ -37,3 +37,7 @@ tfplan
 # Python build and cache
 __pycache__/
 *.pyc
+
+# Exclude Weekly Guide folder
+Weekly Guide/
+
