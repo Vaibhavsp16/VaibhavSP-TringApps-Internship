@@ -38,9 +38,6 @@ tfplan
 __pycache__/
 *.pyc
 
-# Exclude Weekly Guide folder
-Weekly Guide/
-
 # Exclude local lock and debug files
 .terraform.lock.hcl
 response.json
